@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import OrderMilestones from '@/components/orders/OrderMilestones';
 
 // Extend jsPDF type to include autoTable
 declare module 'jspdf' {
@@ -262,8 +263,12 @@ const ManualSalesOrder = () => {
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [previousOrderStatus, setPreviousOrderStatus] = useState<OrderStatus | null>(null);
   
-  // Filter only selling items
-  const sellingItems = items.filter(item => item.itemCategory === 'Selling' && item.isActive);
+  // Filter only selling items - EXCLUDE variant items (only show main items)
+  const sellingItems = items.filter(item => 
+    item.itemCategory === 'Selling' && 
+    item.isActive && 
+    !item.isVariant  // Exclude variant items from main list
+  );
   
   // Customer details
   const [customerName, setCustomerName] = useState<string>('');
@@ -1351,6 +1356,16 @@ const ManualSalesOrder = () => {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Order Milestones - Show only when editing existing order */}
+            {editingOrderId && (
+              <div className="lg:col-span-3">
+                <OrderMilestones 
+                  orderId={editingOrderId} 
+                  orderNumber={existingOrders.find(o => o.id === editingOrderId)?.order_number || ''} 
+                />
+              </div>
+            )}
           </div>
           )}
         </div>

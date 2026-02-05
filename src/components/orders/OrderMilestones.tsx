@@ -198,100 +198,93 @@ export default function OrderMilestones({ orderId, orderNumber }: OrderMilestone
       <CardHeader>
         <CardTitle>Order Milestones - {orderNumber}</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Track the crafting process and upload up to 4 images per milestone
+          Track crafting process and upload images (max 4 per milestone)
         </p>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-3">
         {milestones.map((milestone) => (
           <div
             key={milestone.id}
-            className={`border rounded-lg p-4 space-y-4 ${
-              milestone.is_completed ? 'bg-green-50 border-green-200' : 'bg-white'
+            className={`border rounded-lg p-3 ${
+              milestone.is_completed 
+                ? 'bg-amber-50 border-amber-600' 
+                : 'bg-white border-gray-300'
             }`}
           >
-            {/* Milestone Header */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
+            {/* Compact Header with Images */}
+            <div className="flex items-center gap-3">
+              {/* Checkbox and Name */}
+              <div className="flex items-center gap-2 min-w-[200px]">
                 <Checkbox
                   checked={milestone.is_completed}
                   onCheckedChange={() => toggleMilestoneCompletion(milestone.id, milestone.is_completed)}
                   id={`milestone-${milestone.id}`}
+                  className="data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
                 />
                 <Label
                   htmlFor={`milestone-${milestone.id}`}
-                  className="text-lg font-semibold cursor-pointer flex items-center gap-2"
+                  className={`text-sm font-semibold cursor-pointer flex items-center gap-1 ${
+                    milestone.is_completed ? 'text-amber-900' : 'text-gray-900'
+                  }`}
                 >
                   {milestone.milestone_name}
-                  {milestone.is_completed && (
-                    <Check className="h-5 w-5 text-green-600" />
-                  )}
+                  {milestone.is_completed && <Check className="h-4 w-4 text-amber-600" />}
                 </Label>
               </div>
-              <div className="text-sm text-muted-foreground">
-                {milestone.images.length}/4 images
-              </div>
-            </div>
 
-            {/* Images Grid */}
-            {milestone.images.length > 0 && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {/* Images in a row */}
+              <div className="flex items-center gap-2 flex-1">
                 {milestone.images.map((image) => (
                   <div key={image.id} className="relative group">
                     <img
                       src={image.image_url}
                       alt={`${milestone.milestone_name} - ${image.image_order + 1}`}
-                      className="w-full h-32 object-cover rounded-lg border"
+                      className="w-16 h-16 object-cover rounded border-2 border-gray-300"
                     />
                     <Button
                       size="icon"
                       variant="destructive"
-                      className="absolute top-2 right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="absolute -top-1 -right-1 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
                       onClick={() => deleteImage(image.id, image.image_url)}
                     >
-                      <X className="h-4 w-4" />
+                      <X className="h-3 w-3" />
                     </Button>
                   </div>
                 ))}
+                
+                {/* Upload button - compact */}
+                {milestone.images.length < 4 && (
+                  <Label
+                    htmlFor={`upload-${milestone.id}`}
+                    className="cursor-pointer"
+                  >
+                    <div className="w-16 h-16 border-2 border-dashed border-amber-400 rounded flex items-center justify-center hover:bg-amber-100 hover:border-amber-600 transition-colors">
+                      <Upload className="h-5 w-5 text-amber-600" />
+                    </div>
+                    <Input
+                      id={`upload-${milestone.id}`}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => handleImageUpload(milestone.id, e)}
+                      disabled={uploadingMilestone === milestone.id}
+                    />
+                  </Label>
+                )}
               </div>
-            )}
 
-            {/* Upload Button */}
-            {milestone.images.length < 4 && (
-              <div>
-                <Label
-                  htmlFor={`upload-${milestone.id}`}
-                  className="cursor-pointer"
-                >
-                  <div className="border-2 border-dashed rounded-lg p-6 text-center hover:bg-muted/50 transition-colors">
-                    <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground mb-1">
-                      {uploadingMilestone === milestone.id
-                        ? 'Uploading...'
-                        : 'Click to upload images'}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {4 - milestone.images.length} remaining
-                    </p>
-                  </div>
-                </Label>
-                <Input
-                  id={`upload-${milestone.id}`}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => handleImageUpload(milestone.id, e)}
-                  disabled={uploadingMilestone === milestone.id}
-                />
+              {/* Count */}
+              <div className="text-xs font-semibold text-gray-700 whitespace-nowrap">
+                {milestone.images.length}/4
               </div>
-            )}
+            </div>
           </div>
         ))}
 
         {milestones.length === 0 && (
-          <div className="text-center py-8 text-muted-foreground">
-            <ImageIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>No milestones found for this order</p>
+          <div className="text-center py-4 text-muted-foreground">
+            <ImageIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
             <p className="text-sm">Milestones will be created automatically</p>
           </div>
         )}
