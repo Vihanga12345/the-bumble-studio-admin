@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/bee.png" />
+    <link rel="apple-touch-icon" href="/bee.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Bumble Studio - Admin Panel</title>
+    <meta name="description" content="The Bumble Studio ERP System" />
+    <meta name="author" content="The Bumble Studio" />
+    <meta property="og:image" content="/og-image.png" />
+    <script>
+      // Theme initialization script to prevent flash of unstyled content
+      (function() {
+        const theme = localStorage.getItem('theme');
+        const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        
+        if (theme === 'dark' || (theme === 'system' && systemPrefersDark) || (!theme && systemPrefersDark)) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      })();
+    </script>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <!-- IMPORTANT: DO NOT REMOVE THIS SCRIPT TAG OR THIS VERY COMMENT! -->
+    <script src="https://cdn.gpteng.co/gptengineer.js" type="module"></script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

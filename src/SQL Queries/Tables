@@ -1,0 +1,224 @@
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Create suppliers table
+CREATE TABLE IF NOT EXISTS suppliers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    telephone TEXT,
+    address TEXT,
+    payment_terms TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create customers table  
+CREATE TABLE IF NOT EXISTS customers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    telephone TEXT,
+    address TEXT,
+    email TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create inventory_items table
+CREATE TABLE IF NOT EXISTS inventory_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    description TEXT,
+    category TEXT,
+    unit_of_measure TEXT NOT NULL CHECK (unit_of_measure IN ('units', 'kg', 'liters', 'meters', 'pieces')),
+    purchase_cost DECIMAL(10,2) NOT NULL,
+    selling_price DECIMAL(10,2) NOT NULL,
+    current_stock INTEGER DEFAULT 0,
+    reorder_level INTEGER DEFAULT 0,
+    sku TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create inventory_adjustments table
+CREATE TABLE IF NOT EXISTS inventory_adjustments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+    previous_quantity INTEGER NOT NULL,
+    new_quantity INTEGER NOT NULL,
+    reason TEXT NOT NULL CHECK (reason IN ('damage', 'counting_error', 'return', 'theft', 'production', 'other')),
+    notes TEXT,
+    created_by TEXT,
+    adjustment_date TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create boms (Bill of Materials) table
+CREATE TABLE IF NOT EXISTS boms (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    product_name TEXT NOT NULL,
+    description TEXT,
+    finished_item_id UUID REFERENCES inventory_items(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create bom_materials table (junction table for BOM materials)
+CREATE TABLE IF NOT EXISTS bom_materials (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    bom_id UUID NOT NULL REFERENCES boms(id) ON DELETE CASCADE,
+    item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+    quantity DECIMAL(10,3) NOT NULL,
+    unit_of_measure TEXT NOT NULL
+);
+
+-- Create production_orders table
+CREATE TABLE IF NOT EXISTS production_orders (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    bom_id UUID NOT NULL REFERENCES boms(id) ON DELETE CASCADE,
+    quantity_to_produce INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('planned', 'in_progress', 'in-progress', 'completed', 'cancelled')),
+    start_date TIMESTAMP WITH TIME ZONE NOT NULL,
+    completion_date TIMESTAMP WITH TIME ZONE,
+    labor_cost DECIMAL(10,2) DEFAULT 0,
+    additional_costs DECIMAL(10,2) DEFAULT 0,
+    batch_id TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create purchase_orders table
+CREATE TABLE IF NOT EXISTS purchase_orders (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_number TEXT NOT NULL UNIQUE,
+    supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK (status IN ('draft', 'sent', 'received', 'completed', 'cancelled')),
+    total_amount DECIMAL(10,2) NOT NULL,
+    expected_delivery_date TIMESTAMP WITH TIME ZONE,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create purchase_order_items table
+CREATE TABLE IF NOT EXISTS purchase_order_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    purchase_order_id UUID NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+    item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+    quantity INTEGER NOT NULL,
+    unit_cost DECIMAL(10,2) NOT NULL,
+    total_cost DECIMAL(10,2) NOT NULL,
+    received_quantity INTEGER DEFAULT 0
+);
+
+-- Create sales_orders table
+CREATE TABLE IF NOT EXISTS sales_orders (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_number TEXT NOT NULL UNIQUE,
+    customer_id UUID REFERENCES customers(id),
+    status TEXT NOT NULL CHECK (status IN ('draft', 'confirmed', 'shipped', 'delivered', 'pending', 'processing', 'completed', 'cancelled')),
+    order_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    total_amount DECIMAL(10,2) NOT NULL,
+    payment_method TEXT NOT NULL CHECK (payment_method IN ('cash', 'card', 'bank', 'internal')),
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create sales_order_items table
+CREATE TABLE IF NOT EXISTS sales_order_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    sales_order_id UUID NOT NULL REFERENCES sales_orders(id) ON DELETE CASCADE,
+    product_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+    quantity INTEGER NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    discount DECIMAL(10,2) DEFAULT 0,
+    total_price DECIMAL(10,2) NOT NULL
+);
+
+-- Create invoices table
+CREATE TABLE IF NOT EXISTS invoices (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    sales_order_id UUID NOT NULL REFERENCES sales_orders(id) ON DELETE CASCADE,
+    invoice_number TEXT NOT NULL UNIQUE,
+    amount DECIMAL(10,2) NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'cancelled')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    paid_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Create financial_transactions table
+CREATE TABLE IF NOT EXISTS financial_transactions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
+    amount DECIMAL(10,2) NOT NULL,
+    category TEXT NOT NULL,
+    description TEXT,
+    date TIMESTAMP WITH TIME ZONE NOT NULL,
+    payment_method TEXT NOT NULL CHECK (payment_method IN ('cash', 'card', 'bank', 'internal')),
+    reference_number TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create goods_received_notes table
+CREATE TABLE IF NOT EXISTS goods_received_notes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    purchase_order_id UUID REFERENCES purchase_orders(id) ON DELETE CASCADE,
+    receipt_number TEXT NOT NULL UNIQUE,
+    received_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    notes TEXT,
+    status TEXT DEFAULT 'pending',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create goods_received_note_items table
+CREATE TABLE IF NOT EXISTS goods_received_note_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    grn_id UUID NOT NULL REFERENCES goods_received_notes(id) ON DELETE CASCADE,
+    item_id UUID REFERENCES inventory_items(id),
+    purchase_order_item_id UUID REFERENCES purchase_order_items(id),
+    quantity_received INTEGER NOT NULL,
+    unit_cost DECIMAL(10,2) NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_inventory_items_category ON inventory_items(category);
+CREATE INDEX IF NOT EXISTS idx_inventory_items_is_active ON inventory_items(is_active);
+CREATE INDEX IF NOT EXISTS idx_inventory_adjustments_item_id ON inventory_adjustments(item_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_adjustments_date ON inventory_adjustments(adjustment_date);
+CREATE INDEX IF NOT EXISTS idx_bom_materials_bom_id ON bom_materials(bom_id);
+CREATE INDEX IF NOT EXISTS idx_bom_materials_item_id ON bom_materials(item_id);
+CREATE INDEX IF NOT EXISTS idx_production_orders_bom_id ON production_orders(bom_id);
+CREATE INDEX IF NOT EXISTS idx_production_orders_status ON production_orders(status);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_supplier_id ON purchase_orders(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_status ON purchase_orders(status);
+CREATE INDEX IF NOT EXISTS idx_purchase_order_items_po_id ON purchase_order_items(purchase_order_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_order_items_item_id ON purchase_order_items(item_id);
+CREATE INDEX IF NOT EXISTS idx_sales_orders_customer_id ON sales_orders(customer_id);
+CREATE INDEX IF NOT EXISTS idx_sales_orders_status ON sales_orders(status);
+CREATE INDEX IF NOT EXISTS idx_sales_order_items_so_id ON sales_order_items(sales_order_id);
+CREATE INDEX IF NOT EXISTS idx_sales_order_items_product_id ON sales_order_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_financial_transactions_type ON financial_transactions(type);
+CREATE INDEX IF NOT EXISTS idx_financial_transactions_date ON financial_transactions(date);
+CREATE INDEX IF NOT EXISTS idx_financial_transactions_category ON financial_transactions(category);
+
+-- Add triggers for updated_at timestamps
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_suppliers_updated_at BEFORE UPDATE ON suppliers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_customers_updated_at BEFORE UPDATE ON customers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_inventory_items_updated_at BEFORE UPDATE ON inventory_items FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_boms_updated_at BEFORE UPDATE ON boms FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_production_orders_updated_at BEFORE UPDATE ON production_orders FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_purchase_orders_updated_at BEFORE UPDATE ON purchase_orders FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_sales_orders_updated_at BEFORE UPDATE ON sales_orders FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_goods_received_notes_updated_at BEFORE UPDATE ON goods_received_notes FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

@@ -1,0 +1,118 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Honey Bee Admin Panel - Leather & Gold Theme */
+
+@layer base {
+  :root {
+    /* Premium Leather Brand - Dark Background, Light Tiles */
+    --background: 25 35% 5%;
+    --foreground: 38 60% 85%;
+    
+    --card: 30 25% 25%;
+    --card-foreground: 38 60% 90%;
+    
+    --popover: 30 25% 25%;
+    --popover-foreground: 38 60% 90%;
+    
+    /* Deep mahogany primary */
+    --primary: 38 70% 50%;
+    --primary-foreground: 25 40% 10%;
+    
+    /* Manager role color - Gold */
+    --manager: 38 70% 50%;
+    --manager-foreground: 25 40% 10%;
+    
+    /* Employee role color - Bronze */
+    --employee: 30 40% 35%;
+    --employee-foreground: 38 60% 95%;
+    
+    /* Warm bronze secondary */
+    --secondary: 30 25% 30%;
+    --secondary-foreground: 38 70% 88%;
+    
+    --muted: 30 20% 20%;
+    --muted-foreground: 38 30% 65%;
+    
+    /* Gold accent */
+    --accent: 38 70% 50%;
+    --accent-foreground: 25 40% 10%;
+    
+    --destructive: 0 70% 45%;
+    --destructive-foreground: 38 60% 95%;
+    
+    --border: 30 25% 30%;
+    --input: 30 25% 22%;
+    --ring: 38 70% 50%;
+    
+    --radius: 0.5rem;
+    
+    /* Custom leather theme tokens */
+    --leather-dark: 25 35% 8%;
+    --leather-medium: 30 25% 25%;
+    --leather-light: 30 25% 35%;
+    --gold: 38 70% 50%;
+    --gold-muted: 38 50% 40%;
+    --bronze: 30 40% 35%;
+    --stitching: 38 20% 45%;
+    
+    /* Gradients */
+    --gradient-leather: linear-gradient(135deg, hsl(30 25% 25%) 0%, hsl(30 25% 30%) 100%);
+    --gradient-gold: linear-gradient(135deg, hsl(38 70% 50%) 0%, hsl(38 60% 45%) 100%);
+    --gradient-hero: linear-gradient(to bottom, hsl(25 35% 5% / 0.4), hsl(25 35% 5% / 0.95));
+    
+    /* Shadows */
+    --shadow-leather: 0 4px 20px hsl(0 0% 0% / 0.5);
+    --shadow-gold-glow: 0 0 20px hsl(38 70% 50% / 0.3);
+    --shadow-emboss: inset 0 1px 2px hsl(0 0% 100% / 0.1), 0 2px 4px hsl(0 0% 0% / 0.3);
+
+    /* Sidebar colors - Lighter theme */
+    --sidebar-background: 30 25% 22%;
+    --sidebar-foreground: 38 60% 90%;
+    --sidebar-primary: 38 70% 50%;
+    --sidebar-primary-foreground: 25 40% 10%;
+    --sidebar-accent: 30 25% 30%;
+    --sidebar-accent-foreground: 38 70% 88%;
+    --sidebar-border: 30 25% 30%;
+    --sidebar-ring: 38 70% 50%;
+    
+    /* Transitions */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "ss01";
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer utilities {
+  /* Glassmorphism effect */
+  .glass {
+    @apply bg-card/80 backdrop-blur-lg border border-stitching/30 shadow-leather;
+  }
+  
+  /* Subtle hover effect for cards */
+  .hover-lift {
+    @apply transition-all duration-300 ease-out hover:translate-y-[-2px] hover:shadow-gold-glow;
+  }
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+}
