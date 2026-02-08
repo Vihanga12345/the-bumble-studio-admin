@@ -381,6 +381,32 @@ const ManualSalesOrder = () => {
     loadExistingOrders();
   }, []);
 
+  const resetForm = () => {
+    setEditingOrderId(null);
+    setPreviousOrderStatus(null);
+    setCustomerName('');
+    setCustomerAddress('');
+    setCustomerTelephone('');
+    setNotes('');
+    setOrderStatus('Order Confirmed');
+    setDiscountPercentage(0);
+    setAdvancePaymentPercentage(50);
+    setAdditionalCosts(0);
+    setDeliveryCost(0);
+    setSaleItems([{
+      id: '1',
+      productId: '',
+      name: '',
+      variantId: '',
+      variantName: '',
+      quantity: 1,
+      unitPrice: 0,
+      discount: 0,
+      totalPrice: 0,
+      imageUrl: ''
+    }]);
+  };
+
   const handleEditOrder = async (orderId: string) => {
     const order = existingOrders.find(o => o.id === orderId);
     if (!order) return;
@@ -852,8 +878,7 @@ const ManualSalesOrder = () => {
 
       toast.success(editingOrderId ? 'Sales order updated successfully!' : 'Sales order created successfully!');
       setShowForm(false);
-      setEditingOrderId(null);
-      setPreviousOrderStatus(null);
+      resetForm();
       await loadExistingOrders();
     } catch (error) {
       console.error('Error creating sales order:', error);
@@ -863,26 +888,29 @@ const ManualSalesOrder = () => {
 
   return (
     <Layout>
-      <div className="container mx-auto">
-        <div className="flex flex-col gap-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+      <div className="container mx-auto px-2 sm:px-4">
+        <div className="flex flex-col gap-4 sm:gap-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-3 sm:gap-4">
               <Button variant="ghost" size="icon" onClick={() => navigate('/sales')} className="h-8 w-8">
                 <ArrowLeft className="h-4 w-4" />
               </Button>
               <div>
-                <h1 className="text-3xl font-bold">Manual Sales Orders</h1>
-                <p className="text-muted-foreground">Manage and create manual sales orders</p>
+                <h1 className="text-xl sm:text-2xl md:text-3xl font-bold">Manual Sales Orders</h1>
+                <p className="text-xs sm:text-sm text-muted-foreground">Manage and create manual sales orders</p>
               </div>
             </div>
             {!showForm && (
-              <Button onClick={() => setShowForm(true)}>
+              <Button onClick={() => {
+                resetForm();
+                setShowForm(true);
+              }} className="w-full sm:w-auto">
                 <Plus className="h-4 w-4 mr-2" />
                 Add Sales Order
               </Button>
             )}
             {showForm && (
-              <Button onClick={handleCreateOrder} size="lg">
+              <Button onClick={handleCreateOrder} size="lg" className="w-full sm:w-auto">
                 {editingOrderId ? 'Update Order' : 'Create Order'}
               </Button>
             )}
@@ -891,26 +919,27 @@ const ManualSalesOrder = () => {
           {!showForm && (
             <Card>
               <CardHeader>
-                <CardTitle>Sales Orders</CardTitle>
+                <CardTitle className="text-lg sm:text-xl">Sales Orders</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="overflow-x-auto">
+                <div className="min-w-[800px]">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Image</TableHead>
+                      <TableHead className="w-[50px]">Image</TableHead>
                       <TableHead>Order #</TableHead>
                       <TableHead>Customer</TableHead>
-                      <TableHead>Date</TableHead>
+                      <TableHead className="hidden md:table-cell">Date</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Total</TableHead>
-                      <TableHead className="text-right">Advance</TableHead>
+                      <TableHead className="text-right hidden lg:table-cell">Advance</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {isLoadingOrders ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-6 text-muted-foreground">
+                        <TableCell colSpan={8} className="text-center py-6 text-muted-foreground text-sm">
                           Loading orders...
                         </TableCell>
                       </TableRow>
@@ -922,35 +951,35 @@ const ManualSalesOrder = () => {
                               <img
                                 src={order.first_item_image}
                                 alt="Item"
-                                className="w-10 h-10 object-cover rounded"
+                                className="w-8 h-8 sm:w-10 sm:h-10 object-cover rounded"
                                 onError={(e) => {
                                   e.currentTarget.src = '/placeholder.svg?height=40&width=40';
                                 }}
                               />
                             ) : (
-                              <div className="w-10 h-10 bg-muted rounded flex items-center justify-center">
-                                <Package className="h-5 w-5 text-muted-foreground" />
+                              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-muted rounded flex items-center justify-center">
+                                <Package className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />
                               </div>
                             )}
                           </TableCell>
-                          <TableCell className="font-medium">{order.order_number}</TableCell>
-                          <TableCell>{order.customer_name || 'Walk-in Customer'}</TableCell>
-                          <TableCell>{order.order_date ? new Date(order.order_date).toLocaleDateString() : '-'}</TableCell>
+                          <TableCell className="font-medium text-sm">{order.order_number}</TableCell>
+                          <TableCell className="text-sm">{order.customer_name || 'Walk-in Customer'}</TableCell>
+                          <TableCell className="hidden md:table-cell text-sm">{order.order_date ? new Date(order.order_date).toLocaleDateString() : '-'}</TableCell>
                           <TableCell>
-                            <Badge>{order.order_status || 'Order Confirmed'}</Badge>
+                            <Badge className="text-xs">{order.order_status || 'Order Confirmed'}</Badge>
                           </TableCell>
-                          <TableCell className="text-right">Rs {Number(order.total_amount || 0).toFixed(2)}</TableCell>
-                          <TableCell className="text-right">Rs {Number(order.advance_payment_amount || 0).toFixed(2)}</TableCell>
+                          <TableCell className="text-right text-sm">Rs {Number(order.total_amount || 0).toFixed(2)}</TableCell>
+                          <TableCell className="text-right hidden lg:table-cell text-sm">Rs {Number(order.advance_payment_amount || 0).toFixed(2)}</TableCell>
                           <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
-                              <Button variant="ghost" size="sm" onClick={() => generatePDFForOrder(order.id)}>
-                                <FileDown className="h-4 w-4" />
+                            <div className="flex justify-end gap-1 sm:gap-2">
+                              <Button variant="ghost" size="sm" onClick={() => generatePDFForOrder(order.id)} className="h-8 w-8 p-0">
+                                <FileDown className="h-3 w-3 sm:h-4 sm:w-4" />
                               </Button>
-                              <Button variant="ghost" size="sm" onClick={() => handleEditOrder(order.id)}>
-                                <Edit className="h-4 w-4" />
+                              <Button variant="ghost" size="sm" onClick={() => handleEditOrder(order.id)} className="h-8 w-8 p-0">
+                                <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
                               </Button>
-                              <Button variant="ghost" size="sm" onClick={() => handleDeleteOrder(order.id)}>
-                                <Trash className="h-4 w-4 text-destructive" />
+                              <Button variant="ghost" size="sm" onClick={() => handleDeleteOrder(order.id)} className="h-8 w-8 p-0">
+                                <Trash className="h-3 w-3 sm:h-4 sm:w-4 text-destructive" />
                               </Button>
                             </div>
                           </TableCell>
@@ -958,13 +987,14 @@ const ManualSalesOrder = () => {
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-6 text-muted-foreground">
+                        <TableCell colSpan={8} className="text-center py-6 text-muted-foreground text-sm">
                           No sales orders found. Click "Add Sales Order" to create one.
                         </TableCell>
                       </TableRow>
                     )}
                   </TableBody>
                 </Table>
+                </div>
               </CardContent>
             </Card>
           )}
@@ -975,9 +1005,9 @@ const ManualSalesOrder = () => {
                 variant="outline"
                 onClick={() => {
                   setShowForm(false);
-                  setEditingOrderId(null);
-                  setPreviousOrderStatus(null);
+                  resetForm();
                 }}
+                className="w-full sm:w-auto"
               >
                 Back to List
               </Button>
@@ -985,24 +1015,25 @@ const ManualSalesOrder = () => {
           )}
 
           {showForm && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             {/* Order Items - Main Section */}
             <Card className="lg:col-span-2">
               <CardHeader>
-                <CardTitle>Order Items</CardTitle>
+                <CardTitle className="text-lg sm:text-xl">Order Items</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="overflow-x-auto">
+                <div className="min-w-[800px]">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[30px]"></TableHead>
-                      <TableHead>Image</TableHead>
-                      <TableHead>Item</TableHead>
-                      <TableHead>Variant</TableHead>
-                      <TableHead>Quantity</TableHead>
-                    <TableHead>Unit Price (Rs)</TableHead>
-                      <TableHead>Discount</TableHead>
-                      <TableHead>Total</TableHead>
+                      <TableHead className="w-[50px]">Image</TableHead>
+                      <TableHead className="min-w-[150px]">Item</TableHead>
+                      <TableHead className="min-w-[120px]">Variant</TableHead>
+                      <TableHead className="w-[80px]">Quantity</TableHead>
+                    <TableHead className="w-[100px]">Unit Price (Rs)</TableHead>
+                      <TableHead className="w-[80px]">Discount</TableHead>
+                      <TableHead className="w-[100px]">Total</TableHead>
                       <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1132,28 +1163,29 @@ const ManualSalesOrder = () => {
                     })}
                   </TableBody>
                 </Table>
+                </div>
                 <div className="mt-4">
-                  <Button variant="outline" onClick={handleAddItem}>
+                  <Button variant="outline" onClick={handleAddItem} className="w-full sm:w-auto">
                     <Plus className="h-4 w-4 mr-2" />
                     Add Item
                   </Button>
                 </div>
 
                 {/* Order Summary */}
-                <div className="mt-6 border-t pt-4 space-y-3">
-                  <div className="flex justify-between text-sm">
+                <div className="mt-6 border-t pt-4 space-y-3 text-xs sm:text-sm">
+                  <div className="flex justify-between">
                     <span>Subtotal:</span>
                     <span className="font-medium">Rs {calculateSubtotal().toFixed(2)}</span>
                   </div>
                   
                   {calculateItemDiscounts() > 0 && (
-                    <div className="flex justify-between text-sm text-green-600">
+                    <div className="flex justify-between text-green-600">
                       <span>Item Discounts:</span>
                       <span className="font-medium">-Rs {calculateItemDiscounts().toFixed(2)}</span>
                     </div>
                   )}
 
-                  <div className="flex justify-between items-center text-sm">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
                     <span>Order Discount:</span>
                     <div className="flex items-center gap-2">
                       <Input
@@ -1162,7 +1194,7 @@ const ManualSalesOrder = () => {
                         max="100"
                         value={discountPercentage}
                         onChange={(e) => setDiscountPercentage(parseFloat(e.target.value) || 0)}
-                        className="w-20 h-8"
+                        className="w-16 sm:w-20 h-8 text-xs sm:text-sm"
                       />
                       <span>%</span>
                       {discountPercentage > 0 && (
@@ -1173,7 +1205,7 @@ const ManualSalesOrder = () => {
                     </div>
                   </div>
 
-                  <div className="flex justify-between items-center text-sm">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
                     <span>Additional Costs:</span>
                     <div className="flex items-center gap-2">
                       <Input
@@ -1182,7 +1214,7 @@ const ManualSalesOrder = () => {
                         step="0.01"
                         value={additionalCosts}
                         onChange={(e) => setAdditionalCosts(parseFloat(e.target.value) || 0)}
-                        className="w-32 h-8"
+                        className="w-24 sm:w-32 h-8 text-xs sm:text-sm"
                         placeholder="0.00"
                       />
                       <span>Rs</span>
@@ -1194,7 +1226,7 @@ const ManualSalesOrder = () => {
                     </div>
                   </div>
 
-                  <div className="flex justify-between items-center text-sm">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
                     <span>Delivery Cost:</span>
                     <div className="flex items-center gap-2">
                       <Input
@@ -1203,7 +1235,7 @@ const ManualSalesOrder = () => {
                         step="0.01"
                         value={deliveryCost}
                         onChange={(e) => setDeliveryCost(parseFloat(e.target.value) || 0)}
-                        className="w-32 h-8"
+                        className="w-24 sm:w-32 h-8 text-xs sm:text-sm"
                         placeholder="0.00"
                       />
                       <span>Rs</span>
@@ -1215,12 +1247,12 @@ const ManualSalesOrder = () => {
                     </div>
                   </div>
 
-                  <div className="flex justify-between text-lg font-bold border-t pt-3">
+                  <div className="flex justify-between text-base sm:text-lg font-bold border-t pt-3">
                     <span>Total Amount:</span>
                     <span>Rs {calculateTotal().toFixed(2)}</span>
                   </div>
 
-                  <div className="flex justify-between items-center text-sm bg-blue-50 dark:bg-blue-950 p-3 rounded">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 bg-blue-50 dark:bg-blue-950 p-3 rounded">
                     <span>Advance Payment:</span>
                     <div className="flex items-center gap-2">
                       <Input

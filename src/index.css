@@ -116,3 +116,21 @@
   margin: 0;
   padding: 0;
 }
+
+/* Mobile scaling for admin panel */
+@media (max-width: 768px) {
+  #root {
+    zoom: 0.75;
+    -moz-transform: scale(0.75);
+    -moz-transform-origin: 0 0;
+  }
+  
+  body {
+    font-size: 12px;
+  }
+  
+  /* Adjust container widths for smaller zoom */
+  .container {
+    max-width: 133.33%; /* Compensate for 75% zoom */
+  }
+}

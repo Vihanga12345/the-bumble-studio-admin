@@ -7,13 +7,18 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, Save, Upload, X, Image as ImageIcon } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { uploadMultipleImages, validateImageFile, deleteMultipleImages } from '@/lib/uploadUtils';
 
 const CreateTransaction = () => {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
   
   const [formData, setFormData] = useState({
     type: 'expense',
@@ -34,6 +39,52 @@ const CreateTransaction = () => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    
+    if (files.length === 0) return;
+
+    const maxImages = 5;
+    const remainingSlots = maxImages - imageFiles.length;
+
+    if (files.length > remainingSlots) {
+      toast.error(`Can only upload ${remainingSlots} more image(s). Maximum ${maxImages} images per transaction.`);
+      return;
+    }
+
+    // Validate each file
+    const validFiles: File[] = [];
+    for (const file of files) {
+      const validation = validateImageFile(file, 10); // 10MB max
+      if (!validation.isValid) {
+        toast.error(validation.error);
+        continue;
+      }
+      validFiles.push(file);
+    }
+
+    if (validFiles.length > 0) {
+      setImageFiles(prev => [...prev, ...validFiles]);
+      
+      // Create previews
+      validFiles.forEach(file => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setImagePreviews(prev => [...prev, reader.result as string]);
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // Reset input
+    e.target.value = '';
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setImageFiles(prev => prev.filter((_, i) => i !== index));
+    setImagePreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -44,6 +95,26 @@ const CreateTransaction = () => {
 
     try {
       setIsLoading(true);
+      let imageUrls: string[] = [];
+
+      // Upload images if any
+      if (imageFiles.length > 0) {
+        try {
+          setUploading(true);
+          toast.info('Uploading bill images...');
+          imageUrls = await uploadMultipleImages(imageFiles, 'transactions/bills');
+          setUploadedImages(imageUrls);
+          toast.success('Images uploaded successfully');
+        } catch (error) {
+          console.error('Error uploading images:', error);
+          toast.error('Failed to upload images');
+          setIsLoading(false);
+          setUploading(false);
+          return;
+        } finally {
+          setUploading(false);
+        }
+      }
       
       const { data, error } = await supabase
         .from('financial_transactions')
@@ -55,12 +126,17 @@ const CreateTransaction = () => {
             description: formData.description,
             date: new Date(formData.date).toISOString(),
             payment_method: formData.paymentMethod,
-            reference_number: formData.referenceNumber || null
+            reference_number: formData.referenceNumber || null,
+            bill_images: imageUrls.length > 0 ? imageUrls : null
           }
         ])
         .select();
 
       if (error) {
+        // If transaction creation fails, clean up uploaded images
+        if (imageUrls.length > 0) {
+          await deleteMultipleImages(imageUrls);
+        }
         throw error;
       }
 
@@ -204,6 +280,60 @@ const CreateTransaction = () => {
                     value={formData.referenceNumber}
                     onChange={handleInputChange}
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Bill Images (Optional)</Label>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Upload up to 5 images (receipts, invoices, bills)
+                  </p>
+                  
+                  {imagePreviews.length > 0 && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-3">
+                      {imagePreviews.map((preview, index) => (
+                        <div key={index} className="relative group">
+                          <div className="aspect-square rounded-lg overflow-hidden border border-gray-200">
+                            <img 
+                              src={preview} 
+                              alt={`Bill ${index + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            className="absolute -top-2 -right-2 h-6 w-6 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => handleRemoveImage(index)}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="billImages"
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleImageSelect}
+                      disabled={uploading || imageFiles.length >= 5}
+                      className="hidden"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => document.getElementById('billImages')?.click()}
+                      disabled={uploading || imageFiles.length >= 5}
+                      className="w-full"
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      {uploading ? 'Uploading...' : `Upload Images (${5 - imageFiles.length} remaining)`}
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
               <CardFooter className="justify-end space-x-2">

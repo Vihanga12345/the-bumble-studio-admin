@@ -18,7 +18,6 @@ import { inventoryRoutes } from "@/routes/inventoryRoutes";
 import { procurementRoutes } from "@/routes/procurementRoutes";
 import { financialsRoutes } from "@/routes/financialsRoutes";
 import { analyticsRoutes } from "@/routes/analyticsRoutes";
-import { settingsRoutes } from "@/routes/settingsRoutes";
 
 const queryClient = new QueryClient();
 
@@ -90,15 +89,6 @@ const AppContent = () => {
         {analyticsRoutes.map((route, index) => (
           <Route
             key={`analytics-${index}`}
-            path={route.path}
-            element={<ProtectedRoute>{route.element}</ProtectedRoute>}
-          />
-        ))}
-        
-        {/* Settings routes */}
-        {settingsRoutes.map((route, index) => (
-          <Route
-            key={`settings-${index}`}
             path={route.path}
             element={<ProtectedRoute>{route.element}</ProtectedRoute>}
           />

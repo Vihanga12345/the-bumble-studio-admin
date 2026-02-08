@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
-import { ArrowRight, Plus, Download, Filter, Search, Edit, Trash2 } from 'lucide-react';
+import { ArrowRight, Plus, Download, Filter, Search, Edit, Trash2, Image as ImageIcon } from 'lucide-react';
 import { useFinancials } from '@/hooks/useFinancials';
 import { usePurchaseOrders } from '@/hooks/usePurchaseOrders';
 import { useSales } from '@/hooks/useSales';
@@ -50,7 +50,9 @@ const TransactionList = () => {
         date: new Date(t.date),
         description: t.description,
         amount: t.amount,
-        items: null // No specific items for general transactions
+        items: null, // No specific items for general transactions
+        bill_images: t.bill_images || null,
+        hasImages: t.bill_images && t.bill_images.length > 0
       })),
       
       // Purchase Orders
@@ -426,7 +428,14 @@ const TransactionList = () => {
                               </TableCell>
                               <TableCell>{transaction.displayId}</TableCell>
                               <TableCell>{transaction.category || 'Uncategorized'}</TableCell>
-                              <TableCell>{transaction.description}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  {transaction.description}
+                                  {transaction.hasImages && (
+                                    <ImageIcon className="h-4 w-4 text-blue-500" title="Has bill images" />
+                                  )}
+                                </div>
+                              </TableCell>
                               <TableCell>
                                 {transaction.itemSummary || '-'}
                               </TableCell>

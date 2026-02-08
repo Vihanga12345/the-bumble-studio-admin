@@ -10,8 +10,7 @@ import {
   DollarSign, 
   Users, 
   Menu, 
-  TrendingUp, 
-  Settings,
+  TrendingUp,
   LogOut,
   Truck
 } from 'lucide-react';

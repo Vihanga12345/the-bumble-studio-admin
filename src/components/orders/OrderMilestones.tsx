@@ -2,13 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { Upload, X, Image as ImageIcon, Check } from 'lucide-react';
+import { Upload, X, Image as ImageIcon } from 'lucide-react';
 
-interface MilestoneImage {
+interface OrderImage {
   id: string;
   image_url: string;
   image_order: number;
@@ -20,7 +18,6 @@ interface Milestone {
   milestone_order: number;
   is_completed: boolean;
   completed_at: string | null;
-  images: MilestoneImage[];
 }
 
 interface OrderMilestonesProps {
@@ -30,14 +27,15 @@ interface OrderMilestonesProps {
 
 export default function OrderMilestones({ orderId, orderNumber }: OrderMilestonesProps) {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [orderImages, setOrderImages] = useState<OrderImage[]>([]);
   const [loading, setLoading] = useState(true);
-  const [uploadingMilestone, setUploadingMilestone] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    fetchMilestones();
+    fetchData();
   }, [orderId]);
 
-  const fetchMilestones = async () => {
+  const fetchData = async () => {
     try {
       setLoading(true);
       
@@ -49,27 +47,21 @@ export default function OrderMilestones({ orderId, orderNumber }: OrderMilestone
         .order('milestone_order');
 
       if (milestonesError) throw milestonesError;
+      setMilestones(milestonesData || []);
 
-      // Fetch images for each milestone
-      const milestonesWithImages = await Promise.all(
-        (milestonesData || []).map(async (milestone) => {
-          const { data: imagesData } = await supabase
-            .from('milestone_images')
-            .select('*')
-            .eq('milestone_id', milestone.id)
-            .order('image_order');
+      // Fetch order images (up to 8)
+      const { data: imagesData, error: imagesError } = await supabase
+        .from('order_images')
+        .select('*')
+        .eq('order_id', orderId)
+        .order('image_order')
+        .limit(8);
 
-          return {
-            ...milestone,
-            images: imagesData || []
-          };
-        })
-      );
-
-      setMilestones(milestonesWithImages);
+      if (imagesError) throw imagesError;
+      setOrderImages(imagesData || []);
     } catch (error) {
-      console.error('Error fetching milestones:', error);
-      toast.error('Failed to load milestones');
+      console.error('Error fetching data:', error);
+      toast.error('Failed to load order data');
     } finally {
       setLoading(false);
     }
@@ -89,27 +81,24 @@ export default function OrderMilestones({ orderId, orderNumber }: OrderMilestone
       if (error) throw error;
 
       toast.success(!currentStatus ? 'Milestone completed' : 'Milestone marked as incomplete');
-      fetchMilestones();
+      fetchData();
     } catch (error) {
       console.error('Error updating milestone:', error);
       toast.error('Failed to update milestone');
     }
   };
 
-  const handleImageUpload = async (milestoneId: string, event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
-    const milestone = milestones.find(m => m.id === milestoneId);
-    if (!milestone) return;
-
-    // Check if adding these files would exceed 4 images
-    if (milestone.images.length + files.length > 4) {
-      toast.error('Maximum 4 images per milestone');
+    const remainingSlots = 8 - orderImages.length;
+    if (files.length > remainingSlots) {
+      toast.error(`Can only upload ${remainingSlots} more image(s). Maximum 8 images per order.`);
       return;
     }
 
-    setUploadingMilestone(milestoneId);
+    setUploading(true);
 
     try {
       for (let i = 0; i < files.length; i++) {
@@ -117,38 +106,40 @@ export default function OrderMilestones({ orderId, orderNumber }: OrderMilestone
         
         // Upload to storage
         const fileExt = file.name.split('.').pop();
-        const fileName = `${orderId}/${milestoneId}/${Date.now()}_${i}.${fileExt}`;
+        const fileName = `orders/${orderId}/${Date.now()}_${i}.${fileExt}`;
         
         const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('milestone-images')
+          .from('order-images')
           .upload(fileName, file);
 
         if (uploadError) throw uploadError;
 
         // Get public URL
         const { data: { publicUrl } } = supabase.storage
-          .from('milestone-images')
+          .from('order-images')
           .getPublicUrl(fileName);
 
         // Save to database
         const { error: dbError } = await supabase
-          .from('milestone_images')
+          .from('order_images')
           .insert({
-            milestone_id: milestoneId,
+            order_id: orderId,
             image_url: publicUrl,
-            image_order: milestone.images.length + i
+            image_order: orderImages.length + i
           });
 
         if (dbError) throw dbError;
       }
 
       toast.success(`${files.length} image(s) uploaded successfully`);
-      fetchMilestones();
+      fetchData();
     } catch (error) {
       console.error('Error uploading images:', error);
       toast.error('Failed to upload images');
     } finally {
-      setUploadingMilestone(null);
+      setUploading(false);
+      // Reset input
+      event.target.value = '';
     }
   };
 
@@ -157,26 +148,26 @@ export default function OrderMilestones({ orderId, orderNumber }: OrderMilestone
 
     try {
       // Extract file path from URL
-      const urlParts = imageUrl.split('/milestone-images/');
+      const urlParts = imageUrl.split('/order-images/');
       if (urlParts.length > 1) {
         const filePath = urlParts[1].split('?')[0];
         
         // Delete from storage
         await supabase.storage
-          .from('milestone-images')
+          .from('order-images')
           .remove([filePath]);
       }
 
       // Delete from database
       const { error } = await supabase
-        .from('milestone_images')
+        .from('order_images')
         .delete()
         .eq('id', imageId);
 
       if (error) throw error;
 
       toast.success('Image deleted successfully');
-      fetchMilestones();
+      fetchData();
     } catch (error) {
       console.error('Error deleting image:', error);
       toast.error('Failed to delete image');
@@ -187,108 +178,126 @@ export default function OrderMilestones({ orderId, orderNumber }: OrderMilestone
     return (
       <Card>
         <CardContent className="p-6">
-          <p className="text-center text-muted-foreground">Loading milestones...</p>
+          <p className="text-center text-muted-foreground">Loading...</p>
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Order Milestones - {orderNumber}</CardTitle>
-        <p className="text-sm text-muted-foreground">
-          Track crafting process and upload images (max 4 per milestone)
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {milestones.map((milestone) => (
-          <div
-            key={milestone.id}
-            className={`border rounded-lg p-3 ${
-              milestone.is_completed 
-                ? 'bg-amber-50 border-amber-600' 
-                : 'bg-white border-gray-300'
-            }`}
-          >
-            {/* Compact Header with Images */}
-            <div className="flex items-center gap-3">
-              {/* Checkbox and Name */}
-              <div className="flex items-center gap-2 min-w-[200px]">
+    <div className="space-y-4">
+      {/* Milestones Checklist */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Crafting Milestones - Order #{orderNumber}</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Check off each milestone as it's completed
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {milestones.length === 0 ? (
+            <p className="text-center text-muted-foreground py-4 text-sm">
+              No milestones created yet for this order.
+            </p>
+          ) : (
+            milestones.map((milestone) => (
+              <div
+                key={milestone.id}
+                className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/30 transition-colors border border-transparent hover:border-border"
+              >
                 <Checkbox
+                  id={`milestone-${milestone.id}`}
                   checked={milestone.is_completed}
                   onCheckedChange={() => toggleMilestoneCompletion(milestone.id, milestone.is_completed)}
-                  id={`milestone-${milestone.id}`}
-                  className="data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
+                  className="mt-0.5"
                 />
-                <Label
-                  htmlFor={`milestone-${milestone.id}`}
-                  className={`text-sm font-semibold cursor-pointer flex items-center gap-1 ${
-                    milestone.is_completed ? 'text-amber-900' : 'text-gray-900'
-                  }`}
-                >
-                  {milestone.milestone_name}
-                  {milestone.is_completed && <Check className="h-4 w-4 text-amber-600" />}
-                </Label>
+                <div className="flex-1 min-w-0">
+                  <label
+                    htmlFor={`milestone-${milestone.id}`}
+                    className={`text-sm font-medium cursor-pointer ${
+                      milestone.is_completed ? 'text-muted-foreground line-through' : 'text-foreground'
+                    }`}
+                  >
+                    {milestone.milestone_name}
+                  </label>
+                  {milestone.is_completed && milestone.completed_at && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Completed on {new Date(milestone.completed_at).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
               </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
 
-              {/* Images in a row */}
-              <div className="flex items-center gap-2 flex-1">
-                {milestone.images.map((image) => (
-                  <div key={image.id} className="relative group">
-                    <img
-                      src={image.image_url}
-                      alt={`${milestone.milestone_name} - ${image.image_order + 1}`}
-                      className="w-16 h-16 object-cover rounded border-2 border-gray-300"
-                    />
+      {/* Order Images */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Order Images ({orderImages.length}/8)</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Upload up to 8 images showing the crafting process
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Upload Button */}
+          {orderImages.length < 8 && (
+            <div>
+              <Button
+                variant="outline"
+                disabled={uploading}
+                onClick={() => document.getElementById('image-upload')?.click()}
+                className="w-full sm:w-auto"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                {uploading ? 'Uploading...' : `Upload Images (${8 - orderImages.length} remaining)`}
+              </Button>
+              <input
+                id="image-upload"
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="hidden"
+              />
+            </div>
+          )}
+
+          {/* Image Grid - 2 rows x 4 columns */}
+          {orderImages.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {orderImages.map((image, index) => (
+                <div key={image.id} className="relative group aspect-square">
+                  <img
+                    src={image.image_url}
+                    alt={`Order image ${index + 1}`}
+                    className="w-full h-full object-cover rounded-lg border-2 border-border"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors rounded-lg flex items-center justify-center">
                     <Button
-                      size="icon"
                       variant="destructive"
-                      className="absolute -top-1 -right-1 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                      size="sm"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={() => deleteImage(image.id, image.image_url)}
                     >
-                      <X className="h-3 w-3" />
+                      <X className="h-4 w-4" />
                     </Button>
                   </div>
-                ))}
-                
-                {/* Upload button - compact */}
-                {milestone.images.length < 4 && (
-                  <Label
-                    htmlFor={`upload-${milestone.id}`}
-                    className="cursor-pointer"
-                  >
-                    <div className="w-16 h-16 border-2 border-dashed border-amber-400 rounded flex items-center justify-center hover:bg-amber-100 hover:border-amber-600 transition-colors">
-                      <Upload className="h-5 w-5 text-amber-600" />
-                    </div>
-                    <Input
-                      id={`upload-${milestone.id}`}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => handleImageUpload(milestone.id, e)}
-                      disabled={uploadingMilestone === milestone.id}
-                    />
-                  </Label>
-                )}
-              </div>
-
-              {/* Count */}
-              <div className="text-xs font-semibold text-gray-700 whitespace-nowrap">
-                {milestone.images.length}/4
-              </div>
+                  <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
+                    {index + 1}
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
-        ))}
-
-        {milestones.length === 0 && (
-          <div className="text-center py-4 text-muted-foreground">
-            <ImageIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
-            <p className="text-sm">Milestones will be created automatically</p>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          ) : (
+            <div className="text-center py-8 border-2 border-dashed border-border rounded-lg">
+              <ImageIcon className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
+              <p className="text-sm text-muted-foreground">No images uploaded yet</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
