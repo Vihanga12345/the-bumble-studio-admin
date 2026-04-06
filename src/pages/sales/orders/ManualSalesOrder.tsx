@@ -354,7 +354,7 @@ const ManualSalesOrder = () => {
   
   // Order details
   const [discountPercentage, setDiscountPercentage] = useState<number>(0);
-  const [advancePaymentPercentage, setAdvancePaymentPercentage] = useState<number>(50);
+  const [advancePaymentAmount, setAdvancePaymentAmount] = useState<number>(0);
   const [engravingRows, setEngravingRows] = useState<EngravingRow[]>([
     {
       id: 'engraving-1',
@@ -541,6 +541,7 @@ const ManualSalesOrder = () => {
       }
     ]);
     setEngravingCoveredAmount(0);
+    setAdvancePaymentAmount(0);
     setDeliveryCost(0);
     setNumberOfHours(0);
     setHourlyFee(defaultCrafterHourlyRate);
@@ -570,7 +571,7 @@ const ManualSalesOrder = () => {
     setCustomerTelephone(order.customer_telephone || '');
     setNotes(order.notes || '');
     setDiscountPercentage(Number(order.discount_percentage || 0));
-    setAdvancePaymentPercentage(Number(order.advance_payment_percentage || 50));
+    setAdvancePaymentAmount(Number(order.advance_payment_amount || 0));
     setEngravingCoveredAmount(Number(order.engraving_covered_amount || 0));
     setDeliveryCost(Number(order.delivery_cost || 0));
     setNumberOfHours(Number(order.number_of_hours || 0));
@@ -1065,11 +1066,11 @@ const ManualSalesOrder = () => {
   };
 
   const calculateAdvancePayment = () => {
-    return calculateTotal() * (advancePaymentPercentage / 100);
+    return Number(advancePaymentAmount) || 0;
   };
 
   const calculateRemainingBalance = () => {
-    return calculateTotal() - calculateAdvancePayment();
+    return Math.max(calculateTotal() - calculateAdvancePayment(), 0);
   };
 
   const generatePDF = async (orderId: string, orderDate: string) => {
@@ -1356,7 +1357,7 @@ const ManualSalesOrder = () => {
         order_status: deriveOrderStatusFromWorkflow(),
         discount_percentage: discountPercentage,
         discount_amount: calculateOrderDiscount(),
-        advance_payment_percentage: advancePaymentPercentage,
+        advance_payment_percentage: 0,
         advance_payment_amount: calculateAdvancePayment(),
         remaining_balance: calculateRemainingBalance(),
         subtotal_amount: calculateSubtotal(),
@@ -2206,6 +2207,25 @@ const ManualSalesOrder = () => {
                   <div className="grid grid-cols-[140px_1fr] items-center gap-3 border-t pt-3">
                     <span className="font-semibold">Total Selling price</span>
                     <span className="font-semibold">Rs {calculateTotal().toFixed(2)}</span>
+                  </div>
+                  <div className="grid grid-cols-[140px_1fr] items-center gap-3 pt-1">
+                    <span>Advance Payment</span>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={advancePaymentAmount}
+                        onChange={(e) => setAdvancePaymentAmount(parseFloat(e.target.value) || 0)}
+                        className="w-36 h-8"
+                        placeholder="0.00"
+                      />
+                      <span className="text-sm text-muted-foreground">Rs</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-[140px_1fr] items-center gap-3">
+                    <span className="text-muted-foreground">Balance</span>
+                    <span className="text-muted-foreground">Rs {calculateRemainingBalance().toFixed(2)}</span>
                   </div>
                 </div>
                 )}
