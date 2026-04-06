@@ -531,7 +531,6 @@ const ManualSalesOrder = () => {
     setCustomerTelephone('');
     setNotes('');
     setDiscountPercentage(0);
-    setAdvancePaymentPercentage(50);
     setEngravingRows([
       {
         id: 'engraving-1',
