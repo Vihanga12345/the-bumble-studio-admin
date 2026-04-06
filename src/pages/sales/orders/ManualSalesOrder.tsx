@@ -1,21 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Layout from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Trash2, Plus, ArrowLeft, Package, GripVertical, Edit, Trash, FileDown } from 'lucide-react';
+import { Trash2, Plus, ArrowLeft, Package, GripVertical, Edit, Trash, FileDown, FileSpreadsheet, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { useInventory } from '@/hooks/useInventory';
+import { useHides } from '@/hooks/useHides';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import OrderMilestones from '@/components/orders/OrderMilestones';
+import * as XLSX from 'xlsx';
+import { getCrafterHourlyRate, getCrafterProfitMargin } from '@/lib/crafterSettings';
 
 // Extend jsPDF type to include autoTable
 declare module 'jspdf' {
@@ -28,8 +32,8 @@ interface OrderItem {
   id: string;
   productId: string;
   name: string;
-  variantId?: string; // Selected variant ID from DB
-  variantName?: string; // Selected product variant name
+  selectedHideId?: string;
+  selectedHideIds?: string[];
   quantity: number;
   unitPrice: number;
   discount: number;
@@ -37,7 +41,54 @@ interface OrderItem {
   imageUrl?: string;
 }
 
-type OrderStatus = 'Order Confirmed' | 'Advance Paid' | 'Crafted' | 'Delivered' | 'Full Payment Done';
+interface LinkedHideRow {
+  id: string;
+  hideId: string;
+  productId: string;
+  quantity: number;
+  manHours: number;
+  unitCostPerProduct: number;
+  lineTotal: number;
+}
+
+interface CostLineRow {
+  id: string;
+  inventoryItemId: string;
+  quantity: number;
+  unitCost: number;
+  lineTotal: number;
+}
+
+interface EngravingRow {
+  id: string;
+  enabled: boolean;
+  amount: number;
+  text: string;
+}
+
+type OrderStatus = 'Order Confirmed' | 'Advance Paid' | 'Full Payment Done';
+type FulfillmentStatus =
+  | 'Order Confirmed'
+  | 'Advance Paid'
+  | 'Leathers Selected'
+  | 'Cut Pieces'
+  | 'Stitching'
+  | 'Burnishing'
+  | 'Packed'
+  | 'Remaining Amount Paid'
+  | 'Delivered';
+
+const WORKFLOW_ORDER: FulfillmentStatus[] = [
+  'Order Confirmed',
+  'Advance Paid',
+  'Leathers Selected',
+  'Cut Pieces',
+  'Stitching',
+  'Burnishing',
+  'Packed',
+  'Remaining Amount Paid',
+  'Delivered',
+];
 
 interface InvoiceLineItem {
   name: string;
@@ -45,6 +96,25 @@ interface InvoiceLineItem {
   unitPrice: number;
   totalPrice: number;
 }
+
+const LOGO_URL = '/bumble-logo.png';
+let cachedLogoDataUrl: string | null = null;
+const loadLogoDataUrl = async (): Promise<string | null> => {
+  if (cachedLogoDataUrl) return cachedLogoDataUrl;
+  try {
+    const response = await fetch(LOGO_URL);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    cachedLogoDataUrl = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.readAsDataURL(blob);
+    });
+    return cachedLogoDataUrl;
+  } catch {
+    return null;
+  }
+};
 
 const renderInvoiceLayout = (
   doc: jsPDF,
@@ -61,6 +131,7 @@ const renderInvoiceLayout = (
     deliveryCost?: number;
     advancePayment: number;
     remainingBalance: number;
+    logoDataUrl?: string | null;
   }
 ) => {
   const pageWidth = doc.internal.pageSize.width;
@@ -72,19 +143,22 @@ const renderInvoiceLayout = (
 
   let y = 15;
   
-  // Add logo
-  try {
-    const logoPath = '/The Bumble Studio LOGO.png';
-    doc.addImage(logoPath, 'PNG', centerX - 15, y, 30, 30);
-    y += 35;
-  } catch (error) {
-    console.log('Logo not loaded, continuing without it');
+  // Add logo (data URL required for jsPDF reliability)
+  if (params.logoDataUrl) {
+    try {
+      doc.addImage(params.logoDataUrl, 'PNG', centerX - 15, y, 30, 30);
+      y += 50;
+    } catch (error) {
+      console.log('Logo not loaded, continuing without it');
+      y += 5;
+    }
+  } else {
     y += 5;
   }
   
   doc.setFontSize(24);
   doc.setFont('helvetica', 'bold');
-  doc.text('The Bumble Studio', centerX, y, { align: 'center' });
+  doc.text('Bumble Studio', centerX, y, { align: 'center' });
   y += 10;
   
   doc.setFontSize(10);
@@ -220,7 +294,7 @@ const renderInvoiceLayout = (
   doc.setFont('helvetica', 'normal');
   const terms = [
     '50% advanced payment needs to be made for order confirmation',
-    'Remaining amount should be paid upon delivery.',
+    'Remaining amount should be paid before sent for delivery.',
     'A payment receipt',
     'Delivery charges is only 500 LKR',
     'Payment needs to be made to below mentioned bank account'
@@ -256,12 +330,14 @@ const renderInvoiceLayout = (
 
 const ManualSalesOrder = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { items } = useInventory();
+  const { getAvailableHides } = useHides();
   const [showForm, setShowForm] = useState(false);
+  const [activeDetailsTab, setActiveDetailsTab] = useState<'sale' | 'craft'>('sale');
   const [existingOrders, setExistingOrders] = useState<any[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
-  const [previousOrderStatus, setPreviousOrderStatus] = useState<OrderStatus | null>(null);
   
   // Filter only selling items - EXCLUDE variant items (only show main items)
   const sellingItems = items.filter(item => 
@@ -277,11 +353,24 @@ const ManualSalesOrder = () => {
   const [notes, setNotes] = useState<string>('');
   
   // Order details
-  const [orderStatus, setOrderStatus] = useState<OrderStatus>('Order Confirmed');
   const [discountPercentage, setDiscountPercentage] = useState<number>(0);
   const [advancePaymentPercentage, setAdvancePaymentPercentage] = useState<number>(50);
-  const [additionalCosts, setAdditionalCosts] = useState<number>(0);
+  const [engravingRows, setEngravingRows] = useState<EngravingRow[]>([
+    {
+      id: 'engraving-1',
+      enabled: false,
+      amount: 1000,
+      text: ''
+    }
+  ]);
+  const [engravingCoveredAmount, setEngravingCoveredAmount] = useState<number>(0);
   const [deliveryCost, setDeliveryCost] = useState<number>(0);
+  const [numberOfHours, setNumberOfHours] = useState<number>(0);
+  const [hourlyFee, setHourlyFee] = useState<number>(200);
+  const [defaultCrafterHourlyRate, setDefaultCrafterHourlyRate] = useState<number>(200);
+  const [profitMarginPercentage, setProfitMarginPercentage] = useState<number>(150);
+  const [defaultProfitMarginPercentage, setDefaultProfitMarginPercentage] = useState<number>(150);
+  const [fulfillmentStatus, setFulfillmentStatus] = useState<FulfillmentStatus>('Order Confirmed');
   
   // Order items
   const [saleItems, setSaleItems] = useState<OrderItem[]>([
@@ -295,12 +384,36 @@ const ManualSalesOrder = () => {
       totalPrice: 0
     }
   ]);
+  const [linkedHides, setLinkedHides] = useState<LinkedHideRow[]>([]);
+  const [costLines, setCostLines] = useState<CostLineRow[]>([]);
+  const addEngravingRow = () => {
+    setEngravingRows((prev) => [
+      ...prev,
+      {
+        id: `engraving-${Date.now()}-${prev.length}`,
+        enabled: false,
+        amount: 1000,
+        text: ''
+      }
+    ]);
+  };
+
+  const updateEngravingRow = (rowId: string, updates: Partial<Pick<EngravingRow, 'enabled' | 'amount' | 'text'>>) => {
+    setEngravingRows((prev) =>
+      prev.map((row) => (row.id === rowId ? { ...row, ...updates } : row))
+    );
+  };
+
+  const removeEngravingRow = (rowId: string) => {
+    setEngravingRows((prev) => prev.filter((row) => row.id !== rowId));
+  };
+
 
   // Drag and drop state
   const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
   
-  // Variants state
-  const [variantsByProduct, setVariantsByProduct] = useState<Record<string, any[]>>({});
+  const availableHides = getAvailableHides();
+  const craftingItems = items.filter(item => item.itemCategory === 'Crafting' && item.isActive);
 
   const generateUniqueOrderNumber = async (): Promise<string> => {
     let attempts = 0;
@@ -381,24 +494,64 @@ const ManualSalesOrder = () => {
     loadExistingOrders();
   }, []);
 
+  useEffect(() => {
+    const loadCrafterSettings = async () => {
+      const [rate, margin] = await Promise.all([
+        getCrafterHourlyRate(),
+        getCrafterProfitMargin(),
+      ]);
+      setDefaultCrafterHourlyRate(rate);
+      setDefaultProfitMarginPercentage(margin);
+      if (!editingOrderId) {
+        setHourlyFee(rate);
+        setProfitMarginPercentage(margin);
+      }
+    };
+
+    loadCrafterSettings();
+  }, [editingOrderId]);
+
+  useEffect(() => {
+    const targetOrderId = searchParams.get('editOrderId');
+    if (!targetOrderId || isLoadingOrders || showForm) return;
+    if (!existingOrders.some((order) => order.id === targetOrderId)) return;
+    handleEditOrder(targetOrderId);
+    setSearchParams((prev) => {
+      prev.delete('editOrderId');
+      prev.delete('source');
+      return prev;
+    });
+  }, [existingOrders, isLoadingOrders, searchParams, setSearchParams, showForm]);
+
   const resetForm = () => {
+    setActiveDetailsTab('sale');
     setEditingOrderId(null);
-    setPreviousOrderStatus(null);
     setCustomerName('');
     setCustomerAddress('');
     setCustomerTelephone('');
     setNotes('');
-    setOrderStatus('Order Confirmed');
     setDiscountPercentage(0);
     setAdvancePaymentPercentage(50);
-    setAdditionalCosts(0);
+    setEngravingRows([
+      {
+        id: 'engraving-1',
+        enabled: false,
+        amount: 1000,
+        text: ''
+      }
+    ]);
+    setEngravingCoveredAmount(0);
     setDeliveryCost(0);
+    setNumberOfHours(0);
+    setHourlyFee(defaultCrafterHourlyRate);
+    setProfitMarginPercentage(defaultProfitMarginPercentage);
+    setFulfillmentStatus('Order Confirmed');
+    setLinkedHides([]);
+    setCostLines([]);
     setSaleItems([{
       id: '1',
       productId: '',
       name: '',
-      variantId: '',
-      variantName: '',
       quantity: 1,
       unitPrice: 0,
       discount: 0,
@@ -412,22 +565,28 @@ const ManualSalesOrder = () => {
     if (!order) return;
 
     setEditingOrderId(orderId);
-    setPreviousOrderStatus(order.order_status || 'Order Confirmed');
     setCustomerName(order.customer_name || '');
     setCustomerAddress(order.customer_address || '');
     setCustomerTelephone(order.customer_telephone || '');
     setNotes(order.notes || '');
-    setOrderStatus(order.order_status || 'Order Confirmed');
     setDiscountPercentage(Number(order.discount_percentage || 0));
     setAdvancePaymentPercentage(Number(order.advance_payment_percentage || 50));
-    setAdditionalCosts(Number(order.additional_costs || 0));
+    setEngravingCoveredAmount(Number(order.engraving_covered_amount || 0));
     setDeliveryCost(Number(order.delivery_cost || 0));
+    setNumberOfHours(Number(order.number_of_hours || 0));
+    setHourlyFee(
+      order.hourly_fee !== null && order.hourly_fee !== undefined
+        ? Number(order.hourly_fee)
+        : defaultCrafterHourlyRate
+    );
+    setProfitMarginPercentage(Number(order.profit_margin_percentage || defaultProfitMarginPercentage));
+    setFulfillmentStatus((order.status || 'Order Confirmed') as FulfillmentStatus);
 
+    let loadedItems: OrderItem[] = [];
     if (order.sales_order_items && order.sales_order_items.length > 0) {
-      const items = await Promise.all(order.sales_order_items.map(async (item: any) => {
+      loadedItems = await Promise.all(order.sales_order_items.map(async (item: any) => {
         let productName = '';
         let productImage = '';
-        let variantName = '';
 
         if (item.inventory_item_id) {
           const { data: product } = await supabase
@@ -439,24 +598,10 @@ const ManualSalesOrder = () => {
           productImage = product?.image_url || '';
         }
 
-        if (item.variant_item_id) {
-          const { data: variant } = await supabase
-            .from('inventory_items')
-            .select('variant_name, image_url')
-            .eq('id', item.variant_item_id)
-            .single();
-          variantName = variant?.variant_name || '';
-          if (variant?.image_url) {
-            productImage = variant.image_url;
-          }
-        }
-
         return {
           id: item.id,
           productId: item.inventory_item_id || '',
           name: productName,
-          variantId: item.variant_item_id || '',
-          variantName,
           quantity: item.quantity,
           unitPrice: item.unit_price,
           discount: item.discount || 0,
@@ -464,9 +609,8 @@ const ManualSalesOrder = () => {
           imageUrl: productImage
         };
       }));
-      setSaleItems(items);
     } else {
-      setSaleItems([{
+      loadedItems = [{
         id: '1',
         productId: '',
         name: '',
@@ -474,10 +618,98 @@ const ManualSalesOrder = () => {
         unitPrice: 0,
         discount: 0,
         totalPrice: 0
-      }]);
+      }];
+    }
+
+    const { data: linkedHideRows, error: linkedHideError } = await (supabase as any)
+      .from('sales_order_hides')
+      .select('*')
+      .eq('sales_order_id', orderId);
+    
+    const linkedHideList = !linkedHideError && linkedHideRows ? linkedHideRows : [];
+    setLinkedHides(
+      linkedHideList.map((row: any) => ({
+        id: row.id,
+        hideId: row.hide_id || '',
+        productId: row.product_id || '',
+        quantity: Number(row.quantity || 0),
+        manHours: Number(row.man_hours || 0),
+        unitCostPerProduct: Number(row.unit_cost_per_product || 0),
+        lineTotal: Number(row.line_total || 0)
+      }))
+    );
+    
+    const selectedHideIdsByProduct = new Map<string, string[]>();
+    linkedHideList.forEach((r: any) => {
+      if (r.product_id && r.hide_id) {
+        const arr = selectedHideIdsByProduct.get(r.product_id) || [];
+        if (!arr.includes(r.hide_id)) arr.push(r.hide_id);
+        selectedHideIdsByProduct.set(r.product_id, arr);
+      }
+    });
+    setSaleItems(loadedItems.map(item => {
+      const hideIds = selectedHideIdsByProduct.get(item.productId) || [];
+      return {
+        ...item,
+        selectedHideId: hideIds[0],
+        selectedHideIds: hideIds
+      };
+    }));
+
+    const { data: costLineRows, error: costLineError } = await (supabase as any)
+      .from('sales_order_cost_lines')
+      .select('*')
+      .eq('sales_order_id', orderId);
+    if (!costLineError) {
+      const allCostLines = costLineRows || [];
+      setCostLines(
+        allCostLines
+          .filter((row: any) => row.item_type === 'MATERIAL')
+          .map((row: any) => ({
+            id: row.id,
+            inventoryItemId: row.inventory_item_id || '',
+            quantity: Number(row.quantity || 0),
+            unitCost: Number(row.unit_cost || 0),
+            lineTotal: Number(row.line_total || 0)
+          }))
+      );
+
+      const engravingLineRows = allCostLines.filter((row: any) => row.item_type === 'CUSTOM');
+      if (engravingLineRows.length > 0) {
+        setEngravingRows(
+          engravingLineRows.map((row: any) => ({
+            id: row.id,
+            enabled: true,
+            amount: Number(row.unit_cost || row.line_total || 0),
+            text: row.description || ''
+          }))
+        );
+      } else {
+        const fallbackEngraving = Number(order.additional_costs || 0);
+        setEngravingRows([
+          {
+            id: 'engraving-1',
+            enabled: fallbackEngraving > 0,
+            amount: fallbackEngraving > 0 ? fallbackEngraving : 1000,
+            text: ''
+          }
+        ]);
+      }
+    } else {
+      setCostLines([]);
+      const fallbackEngraving = Number(order.additional_costs || 0);
+      setEngravingRows([
+        {
+          id: 'engraving-1',
+          enabled: fallbackEngraving > 0,
+          amount: fallbackEngraving > 0 ? fallbackEngraving : 1000,
+          text: ''
+        }
+      ]);
     }
 
     setShowForm(true);
+    setActiveDetailsTab('sale');
   };
 
   const handleDeleteOrder = async (orderId: string) => {
@@ -543,67 +775,109 @@ const ManualSalesOrder = () => {
     }
   };
 
-  const loadVariants = async (parentId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('inventory_items')
-        .select('*')
-        .eq('parent_item_id', parentId)
-        .eq('is_variant', true)
-        .gt('current_stock', 0); // Only variants with stock
-      
-      if (error) throw error;
-      
-      setVariantsByProduct(prev => ({
-        ...prev,
-        [parentId]: data || []
-      }));
-    } catch (error) {
-      console.error('Error loading variants:', error);
-    }
+  const handleAddHide = () => {
+    setLinkedHides((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString(),
+        hideId: '',
+        productId: '',
+        quantity: 1,
+        manHours: 0,
+        unitCostPerProduct: 0,
+        lineTotal: 0
+      }
+    ]);
   };
 
-  const handleItemChange = (id: string, field: keyof OrderItem, value: string | number) => {
+  const handleHideChange = (
+    rowId: string,
+    changes: Partial<Pick<LinkedHideRow, 'hideId' | 'productId' | 'quantity' | 'manHours' | 'unitCostPerProduct'>>
+  ) => {
+    setLinkedHides((prev) =>
+      prev.map((row) => {
+        if (row.id !== rowId) return row;
+        const next = { ...row, ...changes };
+        if (changes.hideId) {
+          const selectedHide = availableHides.find((hide) => hide.id === changes.hideId);
+          if (selectedHide && (changes.unitCostPerProduct === undefined || changes.unitCostPerProduct === 0)) {
+            next.unitCostPerProduct = selectedHide.costPerProduct || 0;
+          }
+        }
+        next.lineTotal = (Number(next.quantity) || 0) * (Number(next.unitCostPerProduct) || 0);
+        return next;
+      })
+    );
+  };
+
+  const handleRemoveHide = (rowId: string) => {
+    setLinkedHides((prev) => prev.filter((row) => row.id !== rowId));
+  };
+
+  const handleAddCostLine = () => {
+    setCostLines((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString(),
+        inventoryItemId: '',
+        quantity: 1,
+        unitCost: 0,
+        lineTotal: 0
+      }
+    ]);
+  };
+
+  const handleCostLineChange = (
+    rowId: string,
+    changes: Partial<Pick<CostLineRow, 'inventoryItemId' | 'quantity' | 'unitCost'>>
+  ) => {
+    setCostLines((prev) =>
+      prev.map((row) => {
+        if (row.id !== rowId) return row;
+        const next = { ...row, ...changes };
+        if (changes.inventoryItemId) {
+          const material = craftingItems.find((item) => item.id === changes.inventoryItemId);
+          if (material) {
+            if (changes.unitCost === undefined || changes.unitCost === 0) {
+              next.unitCost = material.sellingPrice || material.purchaseCost || 0;
+            }
+          }
+        }
+        next.lineTotal = (Number(next.quantity) || 0) * (Number(next.unitCost) || 0);
+        return next;
+      })
+    );
+  };
+
+  const handleRemoveCostLine = (rowId: string) => {
+    setCostLines((prev) => prev.filter((row) => row.id !== rowId));
+  };
+
+  const handleItemChange = (id: string, field: keyof OrderItem, value: string | number | string[]) => {
     setSaleItems(
       saleItems.map(item => {
         if (item.id === id) {
           const updatedItem = { ...item, [field]: value };
           
-          // If productId changed, update the item details and load variants
-          if (field === 'productId' && value) {
+          if (field === 'productId' && typeof value === 'string') {
             const inventoryItem = sellingItems.find(invItem => invItem.id === value);
             if (inventoryItem) {
               updatedItem.name = inventoryItem.name;
               updatedItem.unitPrice = inventoryItem.sellingPrice;
               updatedItem.imageUrl = inventoryItem.imageUrl;
-              updatedItem.variantId = undefined; // Reset variant
-              updatedItem.variantName = undefined;
-              // Apply item discount if available
+              updatedItem.selectedHideId = undefined;
+              updatedItem.selectedHideIds = [];
               const itemDiscountAmount = inventoryItem.discountPercentage 
                 ? (inventoryItem.sellingPrice * inventoryItem.discountPercentage / 100) 
                 : 0;
               updatedItem.discount = itemDiscountAmount * updatedItem.quantity;
-              // Recalculate total price
               updatedItem.totalPrice = (inventoryItem.sellingPrice * updatedItem.quantity) - updatedItem.discount;
-              // Load variants for this product
-              loadVariants(value as string);
             }
+            setLinkedHides((prev) => prev.filter((row) => row.productId !== item.productId));
           }
           
-          // If variantId changed, update pricing from variant
-          if (field === 'variantId' && value) {
-            const variants = variantsByProduct[item.productId] || [];
-            const selectedVariant = variants.find(v => v.id === value);
-            if (selectedVariant) {
-              updatedItem.variantName = selectedVariant.variant_name;
-              updatedItem.unitPrice = selectedVariant.selling_price || selectedVariant.sellingPrice;
-              updatedItem.totalPrice = (updatedItem.unitPrice * updatedItem.quantity) - updatedItem.discount;
-            }
-          }
-          
-          // Recalculate total price if quantity or unit price changes
           if (field === 'quantity' || field === 'unitPrice') {
-            const quantity = Number(value);
+            const quantity = field === 'quantity' ? Number(value) : updatedItem.quantity;
             const unitPrice = field === 'unitPrice' ? Number(value) : updatedItem.unitPrice;
             const inventoryItem = sellingItems.find(invItem => invItem.id === item.productId);
             if (inventoryItem && inventoryItem.discountPercentage) {
@@ -611,6 +885,51 @@ const ManualSalesOrder = () => {
               updatedItem.discount = itemDiscountAmount * quantity;
             }
             updatedItem.totalPrice = (unitPrice * quantity) - updatedItem.discount;
+            if (field === 'quantity' && item.productId) {
+              setLinkedHides((prev) =>
+                prev.map((row) =>
+                  row.productId === item.productId
+                    ? { ...row, quantity, lineTotal: quantity * (row.unitCostPerProduct || 0) }
+                    : row
+                )
+              );
+            }
+          }
+          
+          if (field === 'selectedHideIds' && Array.isArray(value)) {
+            updatedItem.selectedHideId = value[0];
+            const productId = item.productId;
+            if (!productId) return updatedItem;
+            setLinkedHides((prev) => {
+              const otherRows = prev.filter((row) => row.productId !== productId);
+              const existingForProduct = prev.filter((row) => row.productId === productId);
+              const existingByHide = new Map(existingForProduct.map((r) => [r.hideId, r]));
+              const newRows: LinkedHideRow[] = [];
+              for (const hideId of value) {
+                const existing = existingByHide.get(hideId);
+                const hide = availableHides.find((h) => h.id === hideId);
+                const unitCost = hide?.costPerProduct ?? 0;
+                if (existing) {
+                  const qty = item.quantity;
+                  newRows.push({
+                    ...existing,
+                    quantity: qty,
+                    lineTotal: qty * (existing.unitCostPerProduct || 0)
+                  });
+                } else {
+                  newRows.push({
+                    id: `new-${Date.now()}-${hideId}`,
+                    hideId,
+                    productId,
+                    quantity: item.quantity,
+                    manHours: 0,
+                    unitCostPerProduct: unitCost,
+                    lineTotal: item.quantity * unitCost
+                  });
+                }
+              }
+              return [...otherRows, ...newRows];
+            });
           }
           
           return updatedItem;
@@ -618,6 +937,14 @@ const ManualSalesOrder = () => {
         return item;
       })
     );
+  };
+
+  const handleHideSelectionChange = (itemId: string, hideId: string, checked: boolean) => {
+    const item = saleItems.find((i) => i.id === itemId);
+    if (!item || !item.productId) return;
+    const current = item.selectedHideIds || (item.selectedHideId ? [item.selectedHideId] : []);
+    const next = checked ? (current.includes(hideId) ? current : [...current, hideId]) : current.filter((id) => id !== hideId);
+    handleItemChange(itemId, 'selectedHideIds', next);
   };
 
   // Drag and drop handlers
@@ -657,8 +984,84 @@ const ManualSalesOrder = () => {
     return calculateSubtotalAfterItemDiscounts() * (discountPercentage / 100);
   };
 
+  const calculateTotalSaleAmount = () => {
+    return (
+      calculateSubtotalAfterItemDiscounts() -
+      calculateOrderDiscount() +
+      calculateEngravingTotal() +
+      (Number(deliveryCost) || 0)
+    );
+  };
+
   const calculateTotal = () => {
-    return calculateSubtotalAfterItemDiscounts() - calculateOrderDiscount() + additionalCosts + deliveryCost;
+    return calculateTotalSaleAmount();
+  };
+
+  const calculateHideCostTotal = () => {
+    return linkedHides.reduce((total, row) => total + row.lineTotal, 0);
+  };
+
+  const calculateAdditionalCostLinesTotal = () => {
+    return costLines.reduce((total, row) => total + row.lineTotal, 0);
+  };
+
+  const calculateCrafterLabourCost = () => {
+    return (Number(numberOfHours) || 0) * (Number(hourlyFee) || 0);
+  };
+
+  const calculateEngravingChange = () => {
+    return Math.max(calculateEngravingTotal() - (Number(engravingCoveredAmount) || 0), 0);
+  };
+
+  const calculateEngravingTotal = () => {
+    return engravingRows.reduce((total, row) => {
+      if (!row.enabled) return total;
+      return total + (Number(row.amount) || 0);
+    }, 0);
+  };
+
+  const calculateProductionCostTotal = () => {
+    return (
+      calculateHideCostTotal() +
+      calculateAdditionalCostLinesTotal() +
+      calculateCrafterLabourCost() +
+      calculateEngravingTotal() +
+      (Number(deliveryCost) || 0)
+    );
+  };
+
+  const calculateFavourableSellingPrice = () => {
+    return calculateProductionCostTotal() * ((Number(profitMarginPercentage) || 0) / 100);
+  };
+
+  const calculateExtraProfitOrLoss = () => {
+    return calculateTotalSaleAmount() - calculateFavourableSellingPrice();
+  };
+
+  const calculateTotalUnits = () => {
+    return saleItems.reduce((total, item) => total + (Number(item.quantity) || 0), 0);
+  };
+
+  const calculateHidePricePerPiece = () => {
+    const units = calculateTotalUnits();
+    if (units <= 0) return 0;
+    return calculateHideCostTotal() / units;
+  };
+
+  const calculateCraftMaterialsPricePerPiece = () => {
+    const units = calculateTotalUnits();
+    if (units <= 0) return 0;
+    return calculateAdditionalCostLinesTotal() / units;
+  };
+
+  const deriveOrderStatusFromWorkflow = (): OrderStatus => {
+    if (fulfillmentStatus === 'Remaining Amount Paid' || fulfillmentStatus === 'Delivered') {
+      return 'Full Payment Done';
+    }
+    if (fulfillmentStatus !== 'Order Confirmed') {
+      return 'Advance Paid';
+    }
+    return 'Order Confirmed';
   };
 
   const calculateAdvancePayment = () => {
@@ -671,6 +1074,7 @@ const ManualSalesOrder = () => {
 
   const generatePDF = async (orderId: string, orderDate: string) => {
     const doc = new jsPDF();
+    const logoDataUrl = await loadLogoDataUrl();
     const cleanCustomerName = customerName.trim() === 'Walk-in Customer' ? '' : customerName;
     const lineItems = saleItems
       .filter(item => item.productId)
@@ -690,13 +1094,14 @@ const ManualSalesOrder = () => {
       items: lineItems,
       subtotal: calculateSubtotalAfterItemDiscounts(),
       orderDiscount: calculateOrderDiscount(),
-      additionalCosts: additionalCosts,
-      deliveryCost: deliveryCost,
+      additionalCosts: Number(calculateEngravingTotal() || 0),
+      deliveryCost: Number(deliveryCost || 0),
       advancePayment: calculateAdvancePayment(),
-      remainingBalance: calculateRemainingBalance()
+      remainingBalance: calculateRemainingBalance(),
+      logoDataUrl
     });
 
-    doc.save(`The_Bumble_Studio_Invoice_${orderId.substring(0, 8)}.pdf`);
+    doc.save(`Bumble_Studio_Invoice_${orderId.substring(0, 8)}.pdf`);
     toast.success('PDF invoice generated successfully!');
   };
 
@@ -741,6 +1146,7 @@ const ManualSalesOrder = () => {
       });
 
       const doc = new jsPDF();
+      const logoDataUrl = await loadLogoDataUrl();
       const lineItems = tableItems.map(item => ({
         name: item.name,
         quantity: item.quantity,
@@ -757,17 +1163,160 @@ const ManualSalesOrder = () => {
         items: lineItems,
         subtotal: Number(order.subtotal_amount || 0),
         orderDiscount: Number(order.discount_amount || 0),
-        additionalCosts: Number(order.additional_costs || 0),
+        additionalCosts: Number(order.additional_costs || 0) + Number(order.packing_cost || 0),
         deliveryCost: Number(order.delivery_cost || 0),
         advancePayment: Number(order.advance_payment_amount || 0),
-        remainingBalance: Number(order.remaining_balance || 0)
+        remainingBalance: Number(order.remaining_balance || 0),
+        logoDataUrl
       });
 
-      doc.save(`The_Bumble_Studio_Invoice_${order.order_number}.pdf`);
+      doc.save(`Bumble_Studio_Invoice_${order.order_number}.pdf`);
       toast.success('PDF invoice generated successfully!');
     } catch (error) {
       console.error('Error generating PDF:', error);
       toast.error('Failed to generate PDF');
+    }
+  };
+
+  const workflowStatuses: FulfillmentStatus[] = WORKFLOW_ORDER;
+
+  const exportAllOrdersToExcel = () => {
+    try {
+      const rows = existingOrders.map((order) => {
+        const totalAmount = Number(order.total_amount || 0);
+        const productionCost = Number(order.production_cost_total || 0);
+        const favourableSellingPrice = Number(order.favourable_selling_price || 0);
+        const extraProfitOrLoss = Number(order.extra_profit_or_loss || (totalAmount - favourableSellingPrice));
+        return {
+          'Order Number': order.order_number,
+          'Order Source': order.order_source || 'manual',
+          'Fulfillment Status': order.status || '',
+          'Customer Name': order.customer_name || '',
+          'Telephone': order.customer_telephone || '',
+          'Address': order.customer_address || '',
+          'Order Date': order.order_date ? new Date(order.order_date).toLocaleString() : '',
+          'Total Amount': totalAmount,
+          'Advance Payment %': Number(order.advance_payment_percentage || 0),
+          'Advance Payment Amount': Number(order.advance_payment_amount || 0),
+          'Remaining Balance': Number(order.remaining_balance || 0),
+          'Order Discount %': Number(order.discount_percentage || 0),
+          'Order Discount Amount': Number(order.discount_amount || 0),
+          'Engraving Expense': Number(order.additional_costs || 0),
+          'Engraving Covered Amount': Number(order.engraving_covered_amount || 0),
+          'Engraving Change Income': Number(order.engraving_change_income || 0),
+          'Packing Price': Number(order.packing_cost || 0),
+          'Delivery Cost': Number(order.delivery_cost || 0),
+          'Hours': Number(order.number_of_hours || 0),
+          'Hourly Rate': Number(order.hourly_fee || 0),
+          'Crafter Labour Cost': Number(order.crafter_labour_cost || 0),
+          'Production Cost Total': productionCost,
+          'Profit Margin %': Number(order.profit_margin_percentage || 0),
+          'Favourable Selling Price': favourableSellingPrice,
+          'Extra Profit/Loss': extraProfitOrLoss,
+          'Estimated Gross Profit': totalAmount - productionCost,
+          'Notes': order.notes || '',
+        };
+      });
+
+      const sheet = XLSX.utils.json_to_sheet(rows);
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, sheet, 'Sales Orders');
+      XLSX.writeFile(book, 'sales_orders_full_export.xlsx');
+      toast.success('All sales orders exported to Excel');
+    } catch (error) {
+      console.error('Error exporting all sales orders:', error);
+      toast.error('Failed to export all sales orders');
+    }
+  };
+
+  const exportOrderToExcel = async (orderId: string) => {
+    try {
+      const { data: order, error: orderError } = await supabase
+        .from('sales_orders')
+        .select('*')
+        .eq('id', orderId)
+        .single();
+      if (orderError || !order) throw orderError || new Error('Order not found');
+
+      const { data: orderItems } = await supabase
+        .from('sales_order_items')
+        .select('*')
+        .eq('sales_order_id', orderId);
+      const { data: hideRows } = await (supabase as any)
+        .from('sales_order_hides')
+        .select('*')
+        .eq('sales_order_id', orderId);
+      const { data: costRows } = await (supabase as any)
+        .from('sales_order_cost_lines')
+        .select('*')
+        .eq('sales_order_id', orderId);
+
+      const infoSheetRows = [
+        { Field: 'Order Number', Value: order.order_number },
+        { Field: 'Order Source', Value: order.order_source || 'manual' },
+        { Field: 'Fulfillment Status', Value: order.status || '' },
+        { Field: 'Order Date', Value: order.order_date ? new Date(order.order_date).toLocaleString() : '' },
+        { Field: 'Customer Name', Value: order.customer_name || '' },
+        { Field: 'Customer Telephone', Value: order.customer_telephone || '' },
+        { Field: 'Customer Address', Value: order.customer_address || '' },
+        { Field: 'Total Amount', Value: Number(order.total_amount || 0) },
+        { Field: 'Advance Payment %', Value: Number(order.advance_payment_percentage || 0) },
+        { Field: 'Advance Payment Amount', Value: Number(order.advance_payment_amount || 0) },
+        { Field: 'Remaining Balance', Value: Number(order.remaining_balance || 0) },
+        { Field: 'Order Discount %', Value: Number(order.discount_percentage || 0) },
+        { Field: 'Order Discount Amount', Value: Number(order.discount_amount || 0) },
+        { Field: 'Engraving Expense', Value: Number(order.additional_costs || 0) },
+        { Field: 'Engraving Covered Amount', Value: Number(order.engraving_covered_amount || 0) },
+        { Field: 'Engraving Change Income', Value: Number(order.engraving_change_income || 0) },
+        { Field: 'Packing Price', Value: Number(order.packing_cost || 0) },
+        { Field: 'Delivery Cost', Value: Number(order.delivery_cost || 0) },
+        { Field: 'Hours', Value: Number(order.number_of_hours || 0) },
+        { Field: 'Hourly Rate', Value: Number(order.hourly_fee || 0) },
+        { Field: 'Crafter Labour Cost', Value: Number(order.crafter_labour_cost || 0) },
+        { Field: 'Production Cost Total', Value: Number(order.production_cost_total || 0) },
+        { Field: 'Profit Margin %', Value: Number(order.profit_margin_percentage || 0) },
+        { Field: 'Favourable Selling Price', Value: Number(order.favourable_selling_price || 0) },
+        { Field: 'Extra Profit/Loss', Value: Number(order.extra_profit_or_loss || 0) },
+      ];
+
+      const itemRows = (orderItems || []).map((item: any) => ({
+        'Inventory Item ID': item.inventory_item_id || item.product_id || '',
+        'Variant ID': item.variant_item_id || '',
+        Quantity: Number(item.quantity || 0),
+        'Unit Price': Number(item.unit_price || 0),
+        Discount: Number(item.discount || 0),
+        'Line Total': Number(item.total_price || 0),
+      }));
+
+      const hideSheetRows = (hideRows || []).map((row: any) => ({
+        'Hide ID': row.hide_id || '',
+        'Selling Item ID': row.product_id || '',
+        Quantity: Number(row.quantity || 0),
+        'Man Hours': Number(row.man_hours || 0),
+        'Hide Cost Per Piece': Number(row.unit_cost_per_product || 0),
+        'Hide Cost': Number(row.line_total || 0),
+      }));
+
+      const costSheetRows = (costRows || []).map((row: any) => ({
+        Type: row.item_type || '',
+        'Inventory Item ID': row.inventory_item_id || '',
+        Description: row.description || '',
+        Quantity: Number(row.quantity || 0),
+        'Unit Cost': Number(row.unit_cost || 0),
+        'Line Total': Number(row.line_total || 0),
+      }));
+
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(infoSheetRows), 'Order Summary');
+      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(itemRows), 'Sale Items');
+      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(hideSheetRows), 'Hide Details');
+      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(costSheetRows), 'Craft Costs');
+
+      XLSX.writeFile(book, `sales_order_${order.order_number}_full.xlsx`);
+      toast.success('Sales order exported to Excel');
+    } catch (error) {
+      console.error('Error exporting order to Excel:', error);
+      toast.error('Failed to export sales order');
     }
   };
 
@@ -804,19 +1353,29 @@ const ManualSalesOrder = () => {
         customer_name: customerName,
         customer_address: customerAddress,
         customer_telephone: customerTelephone,
-        order_status: orderStatus,
+        order_status: deriveOrderStatusFromWorkflow(),
         discount_percentage: discountPercentage,
         discount_amount: calculateOrderDiscount(),
         advance_payment_percentage: advancePaymentPercentage,
         advance_payment_amount: calculateAdvancePayment(),
         remaining_balance: calculateRemainingBalance(),
         subtotal_amount: calculateSubtotal(),
-        additional_costs: additionalCosts,
+        additional_costs: calculateEngravingTotal(),
+        engraving_covered_amount: engravingCoveredAmount,
+        engraving_change_income: calculateEngravingChange(),
+        packing_cost: 0,
         delivery_cost: deliveryCost,
+        number_of_hours: numberOfHours,
+        hourly_fee: hourlyFee,
+        crafter_labour_cost: calculateCrafterLabourCost(),
+        production_cost_total: calculateProductionCostTotal(),
+        profit_margin_percentage: profitMarginPercentage,
+        favourable_selling_price: calculateFavourableSellingPrice(),
+        extra_profit_or_loss: calculateExtraProfitOrLoss(),
         total_amount: calculateTotal(),
         order_date: new Date().toISOString(),
         order_source: 'manual',
-        status: 'pending',
+        status: fulfillmentStatus,
         notes: notes
       };
 
@@ -833,6 +1392,18 @@ const ManualSalesOrder = () => {
           .delete()
           .eq('sales_order_id', editingOrderId);
         if (deleteItemsError) throw deleteItemsError;
+
+        const { error: deleteHidesError } = await (supabase as any)
+          .from('sales_order_hides')
+          .delete()
+          .eq('sales_order_id', editingOrderId);
+        if (deleteHidesError) throw deleteHidesError;
+
+        const { error: deleteCostLinesError } = await (supabase as any)
+          .from('sales_order_cost_lines')
+          .delete()
+          .eq('sales_order_id', editingOrderId);
+        if (deleteCostLinesError) throw deleteCostLinesError;
       } else {
         const { data: order, error: orderError } = await supabase
           .from('sales_orders')
@@ -846,7 +1417,7 @@ const ManualSalesOrder = () => {
       const orderItems = validItems.map(item => ({
         sales_order_id: orderId,
         inventory_item_id: item.productId,
-        variant_item_id: item.variantId || null,
+        variant_item_id: null,
         quantity: item.quantity,
         unit_price: item.unitPrice,
         discount: item.discount,
@@ -858,23 +1429,84 @@ const ManualSalesOrder = () => {
         .insert(orderItems);
       if (itemsError) throw itemsError;
 
-      // Note: Financial transactions are now handled by database trigger
-      // when order status changes to 'delivered'. This prevents duplicates.
-
-      if (orderStatus === 'Delivered' && previousOrderStatus !== 'Delivered') {
-        for (const item of orderItems) {
-          await supabase.rpc('record_inventory_transaction', {
-            p_item_id: item.inventory_item_id,
-            p_transaction_type: 'sales_order',
-            p_quantity_change: -item.quantity,
-            p_variant_item_id: item.variant_item_id,
-            p_reference_id: orderId,
-            p_reference_type: 'sales_order',
-            p_notes: `Sales order delivered: ${orderNumber}`,
-            p_created_by: null
+      const hidePayloadFromItems: { sales_order_id: string; hide_id: string; product_id: string; quantity: number; man_hours: number; unit_cost_per_product: number; line_total: number }[] = [];
+      for (const item of validItems) {
+        const hideIds = item.selectedHideIds && item.selectedHideIds.length > 0
+          ? item.selectedHideIds
+          : (item.selectedHideId ? [item.selectedHideId] : []);
+        for (const hideId of hideIds) {
+          if (!hideId || !item.productId) continue;
+          const hide = availableHides.find((h) => h.id === hideId);
+          const unitCost = hide?.costPerProduct ?? 0;
+          const linkedRow = linkedHides.find((r) => r.productId === item.productId && r.hideId === hideId);
+          hidePayloadFromItems.push({
+            sales_order_id: orderId,
+            hide_id: hideId,
+            product_id: item.productId,
+            quantity: item.quantity,
+            man_hours: linkedRow?.manHours ?? 0,
+            unit_cost_per_product: linkedRow?.unitCostPerProduct ?? unitCost,
+            line_total: (linkedRow?.unitCostPerProduct ?? unitCost) * item.quantity
           });
         }
       }
+      const hidePayloadManual = linkedHides
+        .filter((hide) => hide.hideId && hide.quantity > 0 && !hidePayloadFromItems.some((h) => h.product_id === hide.productId && h.hide_id === hide.hideId))
+        .map((hide) => ({
+          sales_order_id: orderId,
+          hide_id: hide.hideId,
+          product_id: hide.productId || null,
+          quantity: hide.quantity,
+          man_hours: hide.manHours,
+          unit_cost_per_product: hide.unitCostPerProduct,
+          line_total: hide.lineTotal
+        }));
+      const hidePayload = [...hidePayloadFromItems, ...hidePayloadManual];
+      if (hidePayload.length > 0) {
+        const { error: hideInsertError } = await (supabase as any)
+          .from('sales_order_hides')
+          .insert(hidePayload);
+        if (hideInsertError) throw hideInsertError;
+      }
+
+      const materialCostLinePayload = costLines
+        .filter((line) => line.quantity > 0 && line.inventoryItemId)
+        .map((line) => ({
+          sales_order_id: orderId,
+          item_type: 'MATERIAL',
+          inventory_item_id: line.inventoryItemId,
+          description: craftingItems.find((item) => item.id === line.inventoryItemId)?.name || 'Craft material',
+          quantity: line.quantity,
+          unit_cost: line.unitCost,
+          line_total: line.lineTotal
+        }));
+
+      const engravingCostLinePayload = engravingRows
+        .filter((line) => line.enabled && Number(line.amount) > 0)
+        .map((line) => ({
+          sales_order_id: orderId,
+          item_type: 'CUSTOM',
+          inventory_item_id: null,
+          description: line.text.trim() || 'Engraving',
+          quantity: 1,
+          unit_cost: Number(line.amount) || 0,
+          line_total: Number(line.amount) || 0
+        }));
+
+      const costLinePayload = [...materialCostLinePayload, ...engravingCostLinePayload];
+      if (costLinePayload.length > 0) {
+        const { error: costLinesInsertError } = await (supabase as any)
+          .from('sales_order_cost_lines')
+          .insert(costLinePayload);
+        if (costLinesInsertError) throw costLinesInsertError;
+      }
+
+      // Note: Financial transactions and stock reduction are now handled by database trigger
+      // The trigger automatically creates/updates financial records based on order_status:
+      // - Order Confirmed: Amount = 0
+      // - Advance Paid: Amount = advance_payment_amount
+      // - Full Payment Done: Amount = total_amount
+      // Engraving is included in the sales order total - no separate transaction is created.
 
       toast.success(editingOrderId ? 'Sales order updated successfully!' : 'Sales order created successfully!');
       setShowForm(false);
@@ -901,13 +1533,19 @@ const ManualSalesOrder = () => {
               </div>
             </div>
             {!showForm && (
-              <Button onClick={() => {
-                resetForm();
-                setShowForm(true);
-              }} className="w-full sm:w-auto">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Sales Order
-              </Button>
+              <div className="flex w-full sm:w-auto gap-2">
+                <Button variant="outline" onClick={exportAllOrdersToExcel} className="w-full sm:w-auto">
+                  <FileSpreadsheet className="h-4 w-4 mr-2" />
+                  Export All Excel
+                </Button>
+                <Button onClick={() => {
+                  resetForm();
+                  setShowForm(true);
+                }} className="w-full sm:w-auto">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Sales Order
+                </Button>
+              </div>
             )}
             {showForm && (
               <Button onClick={handleCreateOrder} size="lg" className="w-full sm:w-auto">
@@ -922,7 +1560,7 @@ const ManualSalesOrder = () => {
                 <CardTitle className="text-lg sm:text-xl">Sales Orders</CardTitle>
               </CardHeader>
               <CardContent className="overflow-x-auto">
-                <div className="min-w-[800px]">
+                <div className="min-w-0 md:min-w-[800px]">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -932,20 +1570,24 @@ const ManualSalesOrder = () => {
                       <TableHead className="hidden md:table-cell">Date</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Total</TableHead>
-                      <TableHead className="text-right hidden lg:table-cell">Advance</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {isLoadingOrders ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-6 text-muted-foreground text-sm">
+                        <TableCell colSpan={7} className="text-center py-6 text-muted-foreground text-sm">
                           Loading orders...
                         </TableCell>
                       </TableRow>
                     ) : existingOrders.length > 0 ? (
                       existingOrders.map(order => (
-                        <TableRow key={order.id}>
+                        <TableRow
+                          key={order.id}
+                          data-mobile-clickable="true"
+                          className="cursor-pointer"
+                          onClick={() => handleEditOrder(order.id)}
+                        >
                           <TableCell>
                             {order.first_item_image ? (
                               <img
@@ -966,19 +1608,33 @@ const ManualSalesOrder = () => {
                           <TableCell className="text-sm">{order.customer_name || 'Walk-in Customer'}</TableCell>
                           <TableCell className="hidden md:table-cell text-sm">{order.order_date ? new Date(order.order_date).toLocaleDateString() : '-'}</TableCell>
                           <TableCell>
-                            <Badge className="text-xs">{order.order_status || 'Order Confirmed'}</Badge>
+                            <Badge className="text-xs">{order.status || 'Order Confirmed'}</Badge>
                           </TableCell>
                           <TableCell className="text-right text-sm">Rs {Number(order.total_amount || 0).toFixed(2)}</TableCell>
-                          <TableCell className="text-right hidden lg:table-cell text-sm">Rs {Number(order.advance_payment_amount || 0).toFixed(2)}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1 sm:gap-2">
-                              <Button variant="ghost" size="sm" onClick={() => generatePDFForOrder(order.id)} className="h-8 w-8 p-0">
+                              <Button variant="ghost" size="sm" onClick={(e) => {
+                                e.stopPropagation();
+                                generatePDFForOrder(order.id);
+                              }} className="h-8 w-8 p-0">
                                 <FileDown className="h-3 w-3 sm:h-4 sm:w-4" />
                               </Button>
-                              <Button variant="ghost" size="sm" onClick={() => handleEditOrder(order.id)} className="h-8 w-8 p-0">
+                              <Button variant="ghost" size="sm" onClick={(e) => {
+                                e.stopPropagation();
+                                exportOrderToExcel(order.id);
+                              }} className="h-8 w-8 p-0">
+                                <FileSpreadsheet className="h-3 w-3 sm:h-4 sm:w-4" />
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={(e) => {
+                                e.stopPropagation();
+                                handleEditOrder(order.id);
+                              }} className="hidden md:inline-flex h-8 w-8 p-0">
                                 <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
                               </Button>
-                              <Button variant="ghost" size="sm" onClick={() => handleDeleteOrder(order.id)} className="h-8 w-8 p-0">
+                              <Button variant="ghost" size="sm" onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteOrder(order.id);
+                              }} className="h-8 w-8 p-0">
                                 <Trash className="h-3 w-3 sm:h-4 sm:w-4 text-destructive" />
                               </Button>
                             </div>
@@ -987,7 +1643,7 @@ const ManualSalesOrder = () => {
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-6 text-muted-foreground text-sm">
+                        <TableCell colSpan={7} className="text-center py-6 text-muted-foreground text-sm">
                           No sales orders found. Click "Add Sales Order" to create one.
                         </TableCell>
                       </TableRow>
@@ -1015,21 +1671,42 @@ const ManualSalesOrder = () => {
           )}
 
           {showForm && (
+            <div className="flex gap-2">
+              <Button
+                variant={activeDetailsTab === 'sale' ? 'default' : 'outline'}
+                onClick={() => setActiveDetailsTab('sale')}
+                className="flex-1 sm:flex-none"
+              >
+                Sale Details
+              </Button>
+              <Button
+                variant={activeDetailsTab === 'craft' ? 'default' : 'outline'}
+                onClick={() => setActiveDetailsTab('craft')}
+                className="flex-1 sm:flex-none"
+              >
+                Craft Details
+              </Button>
+            </div>
+          )}
+
+          {showForm && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             {/* Order Items - Main Section */}
             <Card className="lg:col-span-2">
               <CardHeader>
-                <CardTitle className="text-lg sm:text-xl">Order Items</CardTitle>
+                <CardTitle className="text-lg sm:text-xl">{activeDetailsTab === 'sale' ? 'Sale Details' : 'Craft Details'}</CardTitle>
               </CardHeader>
-              <CardContent className="overflow-x-auto">
-                <div className="min-w-[800px]">
+              <CardContent className="overflow-x-hidden">
+                {activeDetailsTab === 'sale' && (
+                <>
+                <div className="min-w-0 md:min-w-[800px]">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[30px]"></TableHead>
                       <TableHead className="w-[50px]">Image</TableHead>
                       <TableHead className="min-w-[150px]">Item</TableHead>
-                      <TableHead className="min-w-[120px]">Variant</TableHead>
+                      <TableHead className="min-w-[180px]">Leather Hide</TableHead>
                       <TableHead className="w-[80px]">Quantity</TableHead>
                     <TableHead className="w-[100px]">Unit Price (Rs)</TableHead>
                       <TableHead className="w-[80px]">Discount</TableHead>
@@ -1050,7 +1727,7 @@ const ManualSalesOrder = () => {
                           className="cursor-move hover:bg-muted/50"
                         >
                           <TableCell>
-                            <GripVertical className="h-4 w-4 text-muted-foreground" />
+                            <GripVertical className="hidden md:block h-4 w-4 text-muted-foreground" />
                           </TableCell>
                           <TableCell>
                             {inventoryItem?.imageUrl ? (
@@ -1082,41 +1759,71 @@ const ManualSalesOrder = () => {
                                     key={sellingItem.id} 
                                     value={sellingItem.id}
                                   >
-                                    <div className="flex flex-col">
-                                      <span>{sellingItem.name}</span>
-                                      <span className="text-xs text-muted-foreground">
-                                        Rs {sellingItem.sellingPrice || 0}
-                                        {sellingItem.discountPercentage ? ` | ${sellingItem.discountPercentage}% OFF` : ''}
-                                      </span>
+                                    <div className="flex items-center gap-2">
+                                      {sellingItem.imageUrl ? (
+                                        <img src={sellingItem.imageUrl} alt="" className="w-8 h-8 object-cover rounded flex-shrink-0" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                      ) : (
+                                        <div className="w-8 h-8 bg-muted rounded flex-shrink-0 flex items-center justify-center">
+                                          <Package className="h-4 w-4 text-muted-foreground" />
+                                        </div>
+                                      )}
+                                      <div className="flex flex-col min-w-0">
+                                        <span className="truncate">{sellingItem.name}</span>
+                                        <span className="text-xs text-muted-foreground">
+                                          Rs {sellingItem.sellingPrice || 0}
+                                          {sellingItem.discountPercentage ? ` | ${sellingItem.discountPercentage}% OFF` : ''}
+                                        </span>
+                                      </div>
                                     </div>
                                   </SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
                           </TableCell>
-                          <TableCell className="min-w-[150px]">
-                            {(() => {
-                              const variants = variantsByProduct[item.productId] || [];
-                              return variants.length > 0 ? (
-                                <Select 
-                                  value={item.variantId || ''} 
-                                  onValueChange={(value) => handleItemChange(item.id, 'variantId', value)}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select variant" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {variants.map((variant) => (
-                                      <SelectItem key={variant.id} value={variant.id}>
-                                        {variant.variant_name} (Stock: {variant.current_stock})
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              ) : (
-                                <span className="text-sm text-muted-foreground">No variants</span>
-                              );
-                            })()}
+                          <TableCell className="min-w-[200px]">
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button variant="outline" className="w-full justify-between font-normal h-10">
+                                  <span className="truncate flex-1 text-left">
+                                    {(item.selectedHideIds && item.selectedHideIds.length > 0)
+                                      ? item.selectedHideIds
+                                          .map((hid) => availableHides.find((h) => h.id === hid)?.hideName)
+                                          .filter(Boolean)
+                                          .join(', ')
+                                      : 'Select hides'}
+                                  </span>
+                                  <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[280px] p-2" align="start">
+                                <div className="max-h-[240px] overflow-y-auto space-y-2">
+                                  {availableHides.map((hide) => {
+                                    const checked = (item.selectedHideIds || (item.selectedHideId ? [item.selectedHideId] : [])).includes(hide.id);
+                                    return (
+                                      <label
+                                        key={hide.id}
+                                        className="flex items-center gap-2 p-2 rounded-md hover:bg-muted cursor-pointer"
+                                      >
+                                        <Checkbox
+                                          checked={checked}
+                                          onCheckedChange={(c) => handleHideSelectionChange(item.id, hide.id, !!c)}
+                                        />
+                                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                                          {hide.imageUrls?.[0] ? (
+                                            <img src={hide.imageUrls[0]} alt="" className="w-8 h-8 object-cover rounded flex-shrink-0" />
+                                          ) : (
+                                            <div className="w-8 h-8 bg-muted rounded flex-shrink-0" />
+                                          )}
+                                          <span className="text-sm truncate">
+                                            {hide.hideName} · {hide.animalType} · {hide.leatherGrain || '-'} · {hide.finishing}
+                                          </span>
+                                        </div>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </PopoverContent>
+                            </Popover>
                           </TableCell>
                           <TableCell>
                             <Input
@@ -1124,7 +1831,7 @@ const ManualSalesOrder = () => {
                               min="1"
                               value={item.quantity}
                               onChange={(e) => handleItemChange(item.id, 'quantity', parseInt(e.target.value) || 1)}
-                              className="w-20"
+                              className="w-full md:w-20"
                             />
                           </TableCell>
                           <TableCell className="text-right">
@@ -1134,7 +1841,7 @@ const ManualSalesOrder = () => {
                               step="0.01"
                               value={item.unitPrice}
                               onChange={(e) => handleItemChange(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
-                              className="w-28 text-right"
+                              className="w-full md:w-28 text-left md:text-right"
                             />
                           </TableCell>
                           <TableCell className="text-right">
@@ -1170,64 +1877,257 @@ const ManualSalesOrder = () => {
                     Add Item
                   </Button>
                 </div>
+                </>
+                )}
 
-                {/* Order Summary */}
-                <div className="mt-6 border-t pt-4 space-y-3 text-xs sm:text-sm">
-                  <div className="flex justify-between">
-                    <span>Subtotal:</span>
-                    <span className="font-medium">Rs {calculateSubtotal().toFixed(2)}</span>
+                {activeDetailsTab === 'craft' && (
+                <div className="mt-6 border-t pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold">Hide Details (Selected Hide, Hide Cost, Hide Cost Per Piece)</h3>
+                    <Button type="button" size="sm" variant="outline" onClick={handleAddHide}>
+                      <Plus className="h-3 w-3 mr-1" />
+                      Add Hide
+                    </Button>
                   </div>
-                  
-                  {calculateItemDiscounts() > 0 && (
-                    <div className="flex justify-between text-green-600">
-                      <span>Item Discounts:</span>
-                      <span className="font-medium">-Rs {calculateItemDiscounts().toFixed(2)}</span>
-                    </div>
-                  )}
+                  <div className="space-y-3">
+                    {linkedHides.map((hide) => (
+                      <div key={hide.id} className="grid grid-cols-1 md:grid-cols-7 gap-2 border rounded-md p-3">
+                        <Select value={hide.hideId} onValueChange={(value) => handleHideChange(hide.id, { hideId: value })}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Available Hide" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableHides.map((h) => (
+                              <SelectItem key={h.id} value={h.id}>
+                                <div className="flex items-center gap-2">
+                                  {h.imageUrls?.[0] ? (
+                                    <img src={h.imageUrls[0]} alt="" className="w-8 h-8 object-cover rounded flex-shrink-0" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                  ) : (
+                                    <div className="w-8 h-8 bg-muted rounded flex-shrink-0" />
+                                  )}
+                                  <span className="truncate">{h.hideName}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
 
-                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-                    <span>Order Discount:</span>
-                    <div className="flex items-center gap-2">
+                        <Select value={hide.productId} onValueChange={(value) => handleHideChange(hide.id, { productId: value })}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selling Item" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {saleItems
+                              .filter((line) => line.productId)
+                              .map((line) => {
+                                const invItem = sellingItems.find(s => s.id === line.productId);
+                                return (
+                                  <SelectItem key={`${hide.id}-${line.id}`} value={line.productId}>
+                                    <div className="flex items-center gap-2">
+                                      {invItem?.imageUrl ? (
+                                        <img src={invItem.imageUrl} alt="" className="w-8 h-8 object-cover rounded flex-shrink-0" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                      ) : (
+                                        <div className="w-8 h-8 bg-muted rounded flex-shrink-0 flex items-center justify-center">
+                                          <Package className="h-4 w-4 text-muted-foreground" />
+                                        </div>
+                                      )}
+                                      <span className="truncate">{line.name}</span>
+                                    </div>
+                                  </SelectItem>
+                                );
+                              })}
+                          </SelectContent>
+                        </Select>
+
+                        <Input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          placeholder="Qty"
+                          value={hide.quantity}
+                          onChange={(e) => handleHideChange(hide.id, { quantity: parseFloat(e.target.value) || 0 })}
+                        />
+
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          placeholder="Man hours"
+                          value={hide.manHours}
+                          onChange={(e) => handleHideChange(hide.id, { manHours: parseFloat(e.target.value) || 0 })}
+                        />
+
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="Hide cost per piece"
+                          value={hide.unitCostPerProduct}
+                          onChange={(e) => handleHideChange(hide.id, { unitCostPerProduct: parseFloat(e.target.value) || 0 })}
+                        />
+
+                        <Input type="number" value={hide.lineTotal.toFixed(2)} disabled placeholder="Hide cost" />
+
+                        <Button type="button" variant="ghost" onClick={() => handleRemoveHide(hide.id)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    ))}
+                    {linkedHides.length === 0 && (
+                      <p className="text-xs text-muted-foreground">Add one or more hides used for this order.</p>
+                    )}
+                  </div>
+                </div>
+                )}
+
+                {activeDetailsTab === 'craft' && (
+                <div className="mt-6 border-t pt-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">Craft Materials</h3>
+                    <Button type="button" size="sm" variant="outline" onClick={handleAddCostLine}>
+                      <Plus className="h-3 w-3 mr-1" />
+                      Add Craft Material
+                    </Button>
+                  </div>
+                  <div className="space-y-3">
+                    {costLines.map((line) => (
+                      <div key={line.id} className="grid grid-cols-1 md:grid-cols-7 gap-2 border rounded-md p-3">
+                        <Select value={line.inventoryItemId} onValueChange={(value) => handleCostLineChange(line.id, { inventoryItemId: value })}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select craft material" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {craftingItems.map((material) => (
+                              <SelectItem key={material.id} value={material.id}>
+                                <div className="flex items-center gap-2">
+                                  {material.imageUrl ? (
+                                    <img src={material.imageUrl} alt="" className="w-8 h-8 object-cover rounded flex-shrink-0" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                  ) : (
+                                    <div className="w-8 h-8 bg-muted rounded flex-shrink-0 flex items-center justify-center">
+                                      <Package className="h-4 w-4 text-muted-foreground" />
+                                    </div>
+                                  )}
+                                  <span className="truncate">{material.name}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+
+                        <Input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          placeholder="Quantity"
+                          value={line.quantity}
+                          onChange={(e) => handleCostLineChange(line.id, { quantity: parseFloat(e.target.value) || 0 })}
+                        />
+
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="Cost per piece"
+                          value={line.unitCost}
+                          onChange={(e) => handleCostLineChange(line.id, { unitCost: parseFloat(e.target.value) || 0 })}
+                        />
+
+                        <Input type="number" value={line.lineTotal.toFixed(2)} disabled />
+
+                        <Button type="button" variant="ghost" onClick={() => handleRemoveCostLine(line.id)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    ))}
+                    {costLines.length === 0 && (
+                      <p className="text-xs text-muted-foreground">Add one or more craft materials used for this order.</p>
+                    )}
+                  </div>
+                </div>
+                )}
+
+                {activeDetailsTab === 'craft' && (
+                <div className="mt-6 border-t pt-4">
+                  <h3 className="text-sm font-semibold mb-3">Labour Costing</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <Label className="mb-1 block">Number of hours</Label>
                       <Input
                         type="number"
                         min="0"
-                        max="100"
-                        value={discountPercentage}
-                        onChange={(e) => setDiscountPercentage(parseFloat(e.target.value) || 0)}
-                        className="w-16 sm:w-20 h-8 text-xs sm:text-sm"
+                        step="0.1"
+                        value={numberOfHours}
+                        onChange={(e) => setNumberOfHours(parseFloat(e.target.value) || 0)}
                       />
-                      <span>%</span>
-                      {discountPercentage > 0 && (
-                        <span className="text-green-600 font-medium">
-                          -Rs {calculateOrderDiscount().toFixed(2)}
-                        </span>
-                      )}
+                    </div>
+                    <div>
+                      <Label className="mb-1 block">Hourly fee (Rs)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={hourlyFee}
+                        onChange={(e) => setHourlyFee(parseFloat(e.target.value) || 0)}
+                      />
+                    </div>
+                    <div>
+                      <Label className="mb-1 block">Crafter labour (Rs)</Label>
+                      <Input type="number" value={calculateCrafterLabourCost().toFixed(2)} disabled />
                     </div>
                   </div>
+                </div>
+                )}
 
-                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-                    <span>Additional Costs:</span>
+                {activeDetailsTab === 'craft' && (
+                <div className="mt-6 border-t pt-4 space-y-3 text-xs sm:text-sm">
+                  <h3 className="text-sm font-semibold">Business Amounts</h3>
+                  <p className="text-muted-foreground">Price Break down (for reference purpose)</p>
+
+                  <div className="grid grid-cols-[190px_1fr] items-center gap-3">
+                    <span>Hide Price per piece</span>
+                    <span>Rs {calculateHidePricePerPiece().toFixed(2)}</span>
+                  </div>
+                  <div className="grid grid-cols-[190px_1fr] items-center gap-3">
+                    <span>Craft materials price per piece</span>
+                    <span>Rs {calculateCraftMaterialsPricePerPiece().toFixed(2)}</span>
+                  </div>
+                  <div className="grid grid-cols-[190px_1fr] items-center gap-3">
+                    <span>Profit Margin</span>
                     <div className="flex items-center gap-2">
                       <Input
                         type="number"
                         min="0"
                         step="0.01"
-                        value={additionalCosts}
-                        onChange={(e) => setAdditionalCosts(parseFloat(e.target.value) || 0)}
-                        className="w-24 sm:w-32 h-8 text-xs sm:text-sm"
-                        placeholder="0.00"
+                        value={profitMarginPercentage}
+                        onChange={(e) => setProfitMarginPercentage(parseFloat(e.target.value) || 0)}
+                        className="w-24 h-8"
                       />
-                      <span>Rs</span>
-                      {additionalCosts > 0 && (
-                        <span className="text-blue-600 font-medium">
-                          +Rs {additionalCosts.toFixed(2)}
-                        </span>
-                      )}
+                      <span>%</span>
                     </div>
                   </div>
+                  <div className="grid grid-cols-[190px_1fr] items-center gap-3">
+                    <span>Favourable Selling Price</span>
+                    <span>Rs {calculateFavourableSellingPrice().toFixed(2)}</span>
+                  </div>
+                  <div className="grid grid-cols-[190px_1fr] items-center gap-3">
+                    <span>Extra Profit / Loss</span>
+                    <span className={calculateExtraProfitOrLoss() >= 0 ? 'text-green-600' : 'text-destructive'}>
+                      Rs {calculateExtraProfitOrLoss().toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+                )}
 
-                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-                    <span>Delivery Cost:</span>
+                {/* Sales Amounts */}
+                {activeDetailsTab === 'sale' && (
+                <div className="mt-6 border-t pt-4 space-y-3 text-xs sm:text-sm">
+                  <h3 className="text-sm font-semibold">Sales Amounts</h3>
+                  <div className="grid grid-cols-[140px_1fr] items-center gap-3">
+                    <span>Item Price</span>
+                    <span className="font-medium">Rs {calculateSubtotal().toFixed(2)}</span>
+                  </div>
+                  <div className="grid grid-cols-[140px_1fr] items-center gap-3">
+                    <span>Delivery</span>
                     <div className="flex items-center gap-2">
                       <Input
                         type="number"
@@ -1235,46 +2135,80 @@ const ManualSalesOrder = () => {
                         step="0.01"
                         value={deliveryCost}
                         onChange={(e) => setDeliveryCost(parseFloat(e.target.value) || 0)}
-                        className="w-24 sm:w-32 h-8 text-xs sm:text-sm"
+                        className="w-36 h-8"
                         placeholder="0.00"
                       />
                       <span>Rs</span>
-                      {deliveryCost > 0 && (
-                        <span className="text-orange-600 font-medium">
-                          +Rs {deliveryCost.toFixed(2)}
-                        </span>
-                      )}
                     </div>
                   </div>
-
-                  <div className="flex justify-between text-base sm:text-lg font-bold border-t pt-3">
-                    <span>Total Amount:</span>
-                    <span>Rs {calculateTotal().toFixed(2)}</span>
+                  <div className="grid grid-cols-[140px_1fr] items-center gap-3">
+                    <span>Engraving</span>
+                    <div className="space-y-2">
+                      <Button type="button" variant="outline" size="sm" onClick={addEngravingRow}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Engraving
+                      </Button>
+                      {engravingRows.map((row) => (
+                        <div key={row.id} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={row.enabled}
+                            onChange={(e) => updateEngravingRow(row.id, { enabled: e.target.checked })}
+                            className="h-4 w-4"
+                          />
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={row.amount}
+                            onChange={(e) => updateEngravingRow(row.id, { amount: parseFloat(e.target.value) || 0 })}
+                            className="w-24 h-8"
+                          />
+                          <Input
+                            type="text"
+                            value={row.text}
+                            onChange={(e) => updateEngravingRow(row.id, { text: e.target.value })}
+                            placeholder="What to engrave"
+                            className="w-56 h-8"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeEngravingRow(row.id)}
+                            disabled={engravingRows.length <= 1}
+                            className="h-8 w-8 p-0"
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      ))}
+                      <div className="text-xs text-muted-foreground">
+                        Engraving Total: Rs {calculateEngravingTotal().toFixed(2)}
+                      </div>
+                    </div>
                   </div>
-
-                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 bg-blue-50 dark:bg-blue-950 p-3 rounded">
-                    <span>Advance Payment:</span>
+                  <div className="grid grid-cols-[140px_1fr] items-center gap-3">
+                    <span>Discount</span>
                     <div className="flex items-center gap-2">
                       <Input
                         type="number"
                         min="0"
                         max="100"
-                        value={advancePaymentPercentage}
-                        onChange={(e) => setAdvancePaymentPercentage(parseFloat(e.target.value) || 0)}
-                        className="w-20 h-8"
+                        value={discountPercentage}
+                        onChange={(e) => setDiscountPercentage(parseFloat(e.target.value) || 0)}
+                        className="w-24 h-8"
                       />
                       <span>%</span>
-                      <span className="font-bold text-blue-600 dark:text-blue-400">
-                        Rs {calculateAdvancePayment().toFixed(2)}
-                      </span>
+                      <span>-Rs {calculateOrderDiscount().toFixed(2)}</span>
                     </div>
                   </div>
-
-                  <div className="flex justify-between text-sm">
-                    <span>Remaining Balance:</span>
-                    <span className="font-medium">Rs {calculateRemainingBalance().toFixed(2)}</span>
+                  <div className="grid grid-cols-[140px_1fr] items-center gap-3 border-t pt-3">
+                    <span className="font-semibold">Total Selling price</span>
+                    <span className="font-semibold">Rs {calculateTotal().toFixed(2)}</span>
                   </div>
                 </div>
+                )}
               </CardContent>
             </Card>
 
@@ -1285,91 +2219,42 @@ const ManualSalesOrder = () => {
                   <CardTitle>Customer Details</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="customerName">Customer Name *</Label>
-                    <Input
-                      id="customerName"
-                      placeholder="Enter customer name"
-                      value={customerName}
-                      onChange={(e) => setCustomerName(e.target.value)}
-                    />
+                  <div className="grid grid-cols-[110px_1fr] items-center gap-3">
+                    <Label htmlFor="customerName">Name</Label>
+                    <Input id="customerName" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
                   </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="customerAddress">Address *</Label>
-                    <Textarea
-                      id="customerAddress"
-                      placeholder="Enter customer address"
-                      value={customerAddress}
-                      onChange={(e) => setCustomerAddress(e.target.value)}
-                      rows={3}
-                    />
+
+                  <div className="grid grid-cols-[110px_1fr] items-start gap-3">
+                    <Label htmlFor="customerAddress" className="pt-2">Address</Label>
+                    <Textarea id="customerAddress" value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} rows={2} />
                   </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="customerTelephone">Telephone Number *</Label>
-                    <Input
-                      id="customerTelephone"
-                      placeholder="Enter telephone number"
-                      value={customerTelephone}
-                      onChange={(e) => setCustomerTelephone(e.target.value)}
-                    />
+
+                  <div className="grid grid-cols-[110px_1fr] items-center gap-3">
+                    <Label htmlFor="customerTelephone">Telephone</Label>
+                    <Input id="customerTelephone" value={customerTelephone} onChange={(e) => setCustomerTelephone(e.target.value)} />
                   </div>
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Order Status</CardTitle>
+                  <CardTitle>Order Status Workflow</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="orderStatus">Current Status</Label>
-                    <Select value={orderStatus} onValueChange={(value) => setOrderStatus(value as OrderStatus)}>
-                      <SelectTrigger id="orderStatus">
+                <CardContent>
+                  <div className="grid grid-cols-[110px_1fr] items-center gap-3">
+                    <Label htmlFor="fulfillmentStatus">Workflow</Label>
+                    <Select value={fulfillmentStatus} onValueChange={(value) => setFulfillmentStatus(value as FulfillmentStatus)}>
+                      <SelectTrigger id="fulfillmentStatus">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Order Confirmed">Order Confirmed</SelectItem>
-                        <SelectItem value="Advance Paid">Advance Paid</SelectItem>
-                        <SelectItem value="Crafted">Crafted</SelectItem>
-                        <SelectItem value="Delivered">Delivered</SelectItem>
-                        <SelectItem value="Full Payment Done">Full Payment Done</SelectItem>
+                        {workflowStatuses.map((statusValue) => (
+                          <SelectItem key={statusValue} value={statusValue}>
+                            {statusValue}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    <Badge 
-                      variant={orderStatus === 'Order Confirmed' ? 'default' : 'secondary'}
-                      className="justify-center"
-                    >
-                      Order Confirmed
-                    </Badge>
-                    <Badge 
-                      variant={orderStatus === 'Advance Paid' ? 'default' : 'secondary'}
-                      className="justify-center"
-                    >
-                      Advance Paid
-                    </Badge>
-                    <Badge 
-                      variant={orderStatus === 'Crafted' ? 'default' : 'secondary'}
-                      className="justify-center"
-                    >
-                      Crafted
-                    </Badge>
-                    <Badge 
-                      variant={orderStatus === 'Delivered' ? 'default' : 'secondary'}
-                      className="justify-center"
-                    >
-                      Delivered
-                    </Badge>
-                    <Badge 
-                      variant={orderStatus === 'Full Payment Done' ? 'default' : 'secondary'}
-                      className="justify-center"
-                    >
-                      Full Payment Done
-                    </Badge>
                   </div>
                 </CardContent>
               </Card>
@@ -1389,15 +2274,6 @@ const ManualSalesOrder = () => {
               </Card>
             </div>
 
-            {/* Order Milestones - Show only when editing existing order */}
-            {editingOrderId && (
-              <div className="lg:col-span-3">
-                <OrderMilestones 
-                  orderId={editingOrderId} 
-                  orderNumber={existingOrders.find(o => o.id === editingOrderId)?.order_number || ''} 
-                />
-              </div>
-            )}
           </div>
           )}
         </div>
