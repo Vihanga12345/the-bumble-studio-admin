@@ -1061,6 +1061,12 @@ const ManualSalesOrder = () => {
     if (fulfillmentStatus !== 'Order Confirmed') {
       return 'Advance Paid';
     }
+    // If an advance amount has been entered, treat as Advance Paid even
+    // if the workflow dropdown hasn't been changed yet — this fires the
+    // DB trigger that creates the finance record.
+    if (advancePaymentAmount > 0) {
+      return 'Advance Paid';
+    }
     return 'Order Confirmed';
   };
 

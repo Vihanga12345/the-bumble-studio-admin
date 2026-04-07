@@ -1,8 +1,9 @@
 
 import { useState, useCallback, useEffect } from 'react';
-import { Customer, SalesOrder, Invoice, SaleItem, PaymentMethod, SalesOrderStatus, InventoryItem, UnitOfMeasure, InvoiceStatus } from '@/types';
+import { Customer, SalesOrder, Invoice, SaleItem, PaymentMethod, SalesOrderStatus, InventoryItem, UnitOfMeasure, InvoiceStatus, SalesOrderHideLink, SalesOrderCostLine } from '@/types';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { getCrafterHourlyRate } from '@/lib/crafterSettings';
 
 interface CreateSalesOrderParams {
   customerId?: string;
@@ -15,6 +16,10 @@ interface CreateSalesOrderParams {
   status: SalesOrderStatus;
   notes: string;
   orderSource?: string;
+  linkedHides?: SalesOrderHideLink[];
+  numberOfHours?: number;
+  hourlyFee?: number;
+  costLines?: SalesOrderCostLine[];
 }
 
 export const useSales = () => {
@@ -171,10 +176,20 @@ export const useSales = () => {
           orderNumber: order.order_number,
           items: orderItems,
           status: order.status as SalesOrderStatus,
+          order_status: order.order_status || 'Order Confirmed', // Payment status
           orderDate: new Date(order.order_date),
           totalAmount: order.total_amount,
-          advancePaymentAmount: order.advance_payment_amount ? Number(order.advance_payment_amount) : undefined,
-          remainingBalance: order.remaining_balance ? Number(order.remaining_balance) : undefined,
+          subtotalAmount: order.subtotal_amount ? Number(order.subtotal_amount) : undefined,
+          discountAmount: order.discount_amount ? Number(order.discount_amount) : undefined,
+          additionalCosts: order.additional_costs ? Number(order.additional_costs) : undefined,
+          packingCost: order.packing_cost ? Number(order.packing_cost) : undefined,
+          deliveryCost: order.delivery_cost ? Number(order.delivery_cost) : undefined,
+          numberOfHours: Number(order.number_of_hours || 0),
+          hourlyFee: Number(order.hourly_fee || 200),
+          crafterLabourCost: Number(order.crafter_labour_cost || 0),
+          productionCostTotal: Number(order.production_cost_total || 0),
+          advancePaymentAmount: order.advance_payment_amount != null ? Number(order.advance_payment_amount) : 0,
+          remainingBalance: order.remaining_balance != null ? Number(order.remaining_balance) : 0,
           paymentMethod: order.payment_method as PaymentMethod,
           notes: order.notes || '',
           createdAt: new Date(order.created_at),
@@ -353,6 +368,7 @@ export const useSales = () => {
   const addSalesOrder = async (orderData: CreateSalesOrderParams) => {
     try {
       const orderNumber = await generateUniqueOrderNumber();
+      const defaultHourlyRate = await getCrafterHourlyRate();
 
       const totalAmount = orderData.items.reduce(
         (sum, item) => sum + item.quantity * item.unitPrice,
@@ -368,7 +384,7 @@ export const useSales = () => {
 
       console.log('Creating sales order with customer ID:', customerIdValue);
 
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('sales_orders')
         .insert({
           customer_id: customerIdValue,
@@ -377,7 +393,9 @@ export const useSales = () => {
           status: orderData.status,
           payment_method: orderData.paymentMethod,
           notes: orderData.notes,
-          order_source: orderData.orderSource || 'manual'
+          order_source: orderData.orderSource || 'manual',
+          number_of_hours: orderData.numberOfHours ?? 0,
+          hourly_fee: orderData.hourlyFee ?? defaultHourlyRate
         })
         .select()
         .single();
@@ -412,6 +430,42 @@ export const useSales = () => {
         })
       );
 
+      if (orderData.linkedHides && orderData.linkedHides.length > 0) {
+        const { error: hideLinkError } = await (supabase as any).from('sales_order_hides').insert(
+          orderData.linkedHides.map((link) => ({
+            sales_order_id: data.id,
+            hide_id: link.hideId,
+            product_id: link.productId || null,
+            quantity: link.quantity,
+            man_hours: link.manHours,
+            unit_cost_per_product: link.unitCostPerProduct ?? 0,
+            line_total: link.lineTotal ?? (link.quantity * (link.unitCostPerProduct ?? 0)),
+            notes: link.notes || null
+          }))
+        );
+        if (hideLinkError) {
+          throw hideLinkError;
+        }
+      }
+
+      if (orderData.costLines && orderData.costLines.length > 0) {
+        const { error: costLineError } = await (supabase as any).from('sales_order_cost_lines').insert(
+          orderData.costLines.map((line) => ({
+            sales_order_id: data.id,
+            item_type: line.itemType,
+            hide_id: line.hideId || null,
+            inventory_item_id: line.inventoryItemId || null,
+            description: line.description || '',
+            quantity: line.quantity,
+            unit_cost: line.unitCost,
+            line_total: line.lineTotal ?? (line.quantity * line.unitCost)
+          }))
+        );
+        if (costLineError) {
+          throw costLineError;
+        }
+      }
+
       console.log('Sales order items created:', orderItems);
 
       let customerObj;
@@ -428,8 +482,13 @@ export const useSales = () => {
         status: data.status as SalesOrderStatus,
         orderDate: new Date(data.order_date),
         totalAmount: data.total_amount,
+        numberOfHours: Number(data.number_of_hours || 0),
+        hourlyFee: Number(data.hourly_fee || 200),
+        crafterLabourCost: Number(data.crafter_labour_cost || 0),
+        productionCostTotal: Number(data.production_cost_total || 0),
         paymentMethod: data.payment_method as PaymentMethod,
         notes: data.notes || '',
+        linkedHides: orderData.linkedHides || [],
         items: [],
         createdAt: new Date(data.created_at),
         updatedAt: new Date(data.updated_at)
@@ -454,13 +513,16 @@ export const useSales = () => {
 
   const updateSalesOrder = async (id: string, updates: Partial<SalesOrder>) => {
     try {
+      const payload: Record<string, unknown> = {};
+      if (updates.status !== undefined) payload.status = updates.status;
+      if (updates.order_status !== undefined) payload.order_status = updates.order_status;
+      if (updates.paymentMethod !== undefined) payload.payment_method = updates.paymentMethod;
+      if (updates.notes !== undefined) payload.notes = updates.notes;
+      if (Object.keys(payload).length === 0) return;
+
       const { error } = await supabase
         .from('sales_orders')
-        .update({
-          status: updates.status,
-          payment_method: updates.paymentMethod,
-          notes: updates.notes
-        })
+        .update(payload)
         .eq('id', id);
 
       if (error) {
