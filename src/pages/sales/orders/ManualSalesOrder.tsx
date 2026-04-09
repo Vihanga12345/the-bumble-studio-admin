@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { useInventory } from '@/hooks/useInventory';
 import { useHides } from '@/hooks/useHides';
 import { supabase } from '@/integrations/supabase/client';
+import { reconcileInvoiceAmountDue } from '@/lib/invoiceAmounts';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -271,10 +272,11 @@ const renderInvoiceLayout = (
   doc.text(formatRs(params.advancePayment), rightX, totalsY, { align: 'right' });
   totalsY += 7;
   
-  // Amount due
+  // Amount due (must match Total − Advance; DB remaining can be stale)
+  const amountDue = reconcileInvoiceAmountDue(grandTotal, params.advancePayment, params.remainingBalance);
   doc.setFont('helvetica', 'bold');
   doc.text('Amount due', rightX - 50, totalsY);
-  doc.text(formatRs(params.remainingBalance), rightX, totalsY, { align: 'right' });
+  doc.text(formatRs(amountDue), rightX, totalsY, { align: 'right' });
   doc.setFont('helvetica', 'normal');
   totalsY += 15;
   

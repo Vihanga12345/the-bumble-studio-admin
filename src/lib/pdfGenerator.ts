@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { PurchaseOrder, SalesOrder, InventoryItem, Hide } from '@/types';
+import { reconcileInvoiceAmountDue } from '@/lib/invoiceAmounts';
 
 // Company Information
 const COMPANY_INFO = {
@@ -526,11 +527,7 @@ export class PDFGenerator {
     const hasStoredAdvance =
       advanceRaw != null && advanceRaw !== '' && !Number.isNaN(Number(advanceRaw));
     const advancePayment = hasStoredAdvance ? Number(advanceRaw) : totalAmount * 0.5;
-    const hasStoredRemaining =
-      remainingRaw != null && remainingRaw !== '' && !Number.isNaN(Number(remainingRaw));
-    const amountDue = hasStoredRemaining
-      ? Number(remainingRaw)
-      : Math.max(totalAmount - advancePayment, 0);
+    const amountDue = reconcileInvoiceAmountDue(totalAmount, advancePayment, remainingRaw);
 
     const pctRaw = o.advancePaymentPercentage ?? o.advance_payment_percentage;
     const pct = pctRaw != null && pctRaw !== '' ? Number(pctRaw) : NaN;
