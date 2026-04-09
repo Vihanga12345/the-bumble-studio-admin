@@ -188,8 +188,18 @@ export const useSales = () => {
           hourlyFee: Number(order.hourly_fee || 200),
           crafterLabourCost: Number(order.crafter_labour_cost || 0),
           productionCostTotal: Number(order.production_cost_total || 0),
-          advancePaymentAmount: order.advance_payment_amount != null ? Number(order.advance_payment_amount) : 0,
-          remainingBalance: order.remaining_balance != null ? Number(order.remaining_balance) : 0,
+          advancePaymentAmount:
+            order.advance_payment_amount != null && order.advance_payment_amount !== ''
+              ? Number(order.advance_payment_amount)
+              : undefined,
+          remainingBalance:
+            order.remaining_balance != null && order.remaining_balance !== ''
+              ? Number(order.remaining_balance)
+              : undefined,
+          advancePaymentPercentage:
+            order.advance_payment_percentage != null && order.advance_payment_percentage !== ''
+              ? Number(order.advance_payment_percentage)
+              : undefined,
           paymentMethod: order.payment_method as PaymentMethod,
           notes: order.notes || '',
           createdAt: new Date(order.created_at),

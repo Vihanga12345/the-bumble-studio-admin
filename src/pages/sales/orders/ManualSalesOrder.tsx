@@ -267,7 +267,7 @@ const renderInvoiceLayout = (
   // Advance payment
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
-  doc.text('Advance (50%)', rightX - 50, totalsY);
+  doc.text('Advance payment', rightX - 50, totalsY);
   doc.text(formatRs(params.advancePayment), rightX, totalsY, { align: 'right' });
   totalsY += 7;
   

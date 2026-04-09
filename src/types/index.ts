@@ -165,6 +165,7 @@ export interface SalesOrder {
   totalAmount: number;
   advancePaymentAmount?: number;
   remainingBalance?: number;
+  advancePaymentPercentage?: number;
   paymentMethod: PaymentMethod;
   notes: string;
   createdAt: Date;

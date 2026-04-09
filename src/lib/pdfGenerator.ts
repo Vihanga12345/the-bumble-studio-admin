@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { PurchaseOrder, SalesOrder } from '@/types';
+import { PurchaseOrder, SalesOrder, InventoryItem, Hide } from '@/types';
 
 // Company Information
 const COMPANY_INFO = {
@@ -513,13 +513,35 @@ export class PDFGenerator {
     this.doc.text(formatRs(totalAmount), totalsX, totalsY, { align: 'right' });
     totalsY += 10;
     
-    // Show advance payment and remaining balance
+    // Show advance payment and remaining balance (stored values; only default to 50% when not saved)
     this.doc.setFontSize(10);
     this.doc.setFont('helvetica', 'normal');
-    const advancePayment = order.advancePaymentAmount ?? (totalAmount * 0.5);
-    const amountDue = order.remainingBalance ?? (totalAmount - advancePayment);
-    
-    this.doc.text('Advance (50%)', totalsX - 50, totalsY);
+    const o = order as SalesOrder & {
+      advance_payment_amount?: number | string | null;
+      remaining_balance?: number | string | null;
+      advance_payment_percentage?: number | string | null;
+    };
+    const advanceRaw = o.advancePaymentAmount ?? o.advance_payment_amount;
+    const remainingRaw = o.remainingBalance ?? o.remaining_balance;
+    const hasStoredAdvance =
+      advanceRaw != null && advanceRaw !== '' && !Number.isNaN(Number(advanceRaw));
+    const advancePayment = hasStoredAdvance ? Number(advanceRaw) : totalAmount * 0.5;
+    const hasStoredRemaining =
+      remainingRaw != null && remainingRaw !== '' && !Number.isNaN(Number(remainingRaw));
+    const amountDue = hasStoredRemaining
+      ? Number(remainingRaw)
+      : Math.max(totalAmount - advancePayment, 0);
+
+    const pctRaw = o.advancePaymentPercentage ?? o.advance_payment_percentage;
+    const pct = pctRaw != null && pctRaw !== '' ? Number(pctRaw) : NaN;
+    const advanceLabel =
+      Number.isFinite(pct) && pct > 0
+        ? Number.isInteger(pct)
+          ? `Advance (${pct}%)`
+          : `Advance (${pct.toFixed(1)}%)`
+        : 'Advance payment';
+
+    this.doc.text(advanceLabel, totalsX - 50, totalsY);
     this.doc.text(formatRs(advancePayment), totalsX, totalsY, { align: 'right' });
     totalsY += 7;
     
@@ -687,4 +709,82 @@ export const generateSalesOrderPDF = async (order: SalesOrder, showPrint: boolea
 export const generatePOSReceiptPDF = (saleData: any, showPrint: boolean = true) => {
   const generator = new PDFGenerator();
   generator.generatePOSReceiptPDF(saleData, showPrint);
-}; 
+};
+
+/** Export selling items, crafting items, and hides to a single PDF catalog. */
+export async function generateInventoryCatalogPDF(
+  items: InventoryItem[],
+  hides: Hide[]
+): Promise<void> {
+  const doc = new jsPDF();
+  const margin = 20;
+  const formatRs = (n: number) => `Rs ${Number(n || 0).toFixed(2)}`;
+
+  const selling = items.filter(
+    (i) => i.itemCategory === 'Selling' && !i.isVariant && !i.parentItemId
+  );
+  const crafting = items.filter(
+    (i) => i.itemCategory === 'Crafting' && !i.isVariant && !i.parentItemId
+  );
+
+  let y = margin;
+  doc.setFontSize(16);
+  doc.text('Bumble Studio — Product catalog', margin, y);
+  y += 12;
+
+  const addSection = (title: string, head: string[][], body: (string | number)[][]) => {
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text(title, margin, y);
+    y += 6;
+    doc.setFont('helvetica', 'normal');
+    autoTable(doc, {
+      startY: y,
+      head,
+      body,
+      margin: { left: margin, right: margin },
+      theme: 'striped',
+      headStyles: { fillColor: [74, 50, 33], textColor: [255, 255, 255] },
+    });
+    y = (doc as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12;
+  };
+
+  addSection(
+    'Selling items',
+    [['Name', 'Category', 'SKU', 'Stock', 'Price']],
+    selling.map((i) => [
+      i.name,
+      i.category || '—',
+      i.sku || '—',
+      i.currentStock,
+      formatRs(i.sellingPrice),
+    ])
+  );
+
+  addSection(
+    'Crafting / materials',
+    [['Name', 'Category', 'SKU', 'Stock', 'Cost']],
+    crafting.map((i) => [
+      i.name,
+      i.category || '—',
+      i.sku || '—',
+      i.currentStock,
+      formatRs(i.purchaseCost),
+    ])
+  );
+
+  addSection(
+    'Hides',
+    [['Name', 'Grain', 'Finishing', 'Sq ft', 'Price', 'Available']],
+    hides.map((h) => [
+      h.hideName,
+      h.leatherGrain || '—',
+      String(h.finishing ?? '—'),
+      h.sqFeet,
+      formatRs(h.price),
+      h.isAvailable ? 'Yes' : 'No',
+    ])
+  );
+
+  doc.save(`Bumble_Studio_Catalog_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
