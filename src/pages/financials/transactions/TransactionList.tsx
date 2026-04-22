@@ -9,6 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { format } from 'date-fns';
 import { ArrowRight, Plus, Download, Filter, Search, Edit, Trash2, Image as ImageIcon } from 'lucide-react';
 import { useFinancials } from '@/hooks/useFinancials';
@@ -33,69 +39,45 @@ const TransactionList = () => {
   const [currentTab, setCurrentTab] = useState<string>('all');
   const [showFilters, setShowFilters] = useState(false);
   const [allTransactions, setAllTransactions] = useState<any[]>([]);
+  const [imagePreview, setImagePreview] = useState<{ urls: string[]; title: string } | null>(null);
 
   useEffect(() => {
     fetchTransactions();
   }, [fetchTransactions]);
 
-  // Combine all different transaction types
+  // Combine all different transaction types - only 1 expense record per PO (financial transaction)
+  // Purchase Orders are NOT shown as separate rows - the financial transaction (expense) represents them
   useEffect(() => {
     const combinedTransactions = [
-      // Financial transactions
-      ...transactions.map(t => ({
-        ...t,
-        transactionType: 'financial',
-        displayType: t.type === 'income' ? 'Income' : 'Expense',
-        displayId: t.id,
-        date: new Date(t.date),
-        description: t.description,
-        amount: t.amount,
-        items: null, // No specific items for general transactions
-        bill_images: t.bill_images || null,
-        hasImages: t.bill_images && t.bill_images.length > 0
-      })),
+      // Financial transactions (includes bill_images + order_images for sales, PO images for purchases)
+      ...transactions
+        .filter(t => !t.referenceNumber?.includes('-engraving-change'))
+        .map(t => {
+          const po = t.category === 'purchases' && t.referenceNumber
+            ? purchaseOrders.find(po => po.orderNumber === t.referenceNumber)
+            : null;
+          const itemSummary = po ? po.items.map(item => `${item.name || 'Unknown'} (${item.quantity})`).join(', ') : null;
+          const billImages = t.bill_images && t.bill_images.length > 0 ? t.bill_images : null;
+          const itemImage = !billImages && po?.items?.[0] ? (po.items[0] as any).imageUrl : null;
+          const displayImages = billImages || (itemImage ? [itemImage] : null);
+          return {
+            ...t,
+            transactionType: 'financial',
+            displayType: t.type === 'income' ? 'Income' : 'Expense',
+            displayId: t.referenceNumber || t.id,
+            date: new Date(t.date),
+            description: t.description,
+            amount: t.amount,
+            items: po?.items || null,
+            itemSummary: itemSummary || null,
+            bill_images: displayImages,
+            hasImages: !!displayImages && displayImages.length > 0
+          };
+        }),
       
-      // Purchase Orders
-      ...purchaseOrders.map(po => {
-        const itemSummary = po.items.map(item => 
-          `${item.name || 'Unknown'} (${item.quantity})`
-        ).join(', ');
-        
-        return {
-          id: `po-${po.id}`,
-          transactionType: 'purchase',
-          displayType: 'Purchase Order',
-          displayId: po.orderNumber,
-          date: new Date(po.createdAt),
-          description: `Purchase from ${po.supplier.name}`,
-          amount: po.totalAmount,
-          category: 'Procurement',
-          status: po.status,
-          items: po.items, // Store the actual items
-          itemSummary
-        };
-      }),
-      
-      // Sales Orders
-      ...salesOrders.map(so => {
-        const itemSummary = so.items.map(item => 
-          `${item.product?.name || 'Unknown'} (${item.quantity})`
-        ).join(', ');
-        
-        return {
-          id: `so-${so.id}`,
-          transactionType: 'sales',
-          displayType: 'Sales Order',
-          displayId: so.orderNumber,
-          date: new Date(so.orderDate),
-          description: `Sale to customer ${so.customer?.name || 'Walk-in Customer'}`,
-          amount: so.totalAmount,
-          category: 'Sales',
-          status: so.status,
-          items: so.items, // Store the actual items
-          itemSummary
-        };
-      }),
+      // Sales Orders - REMOVED: Now handled by automatic financial transactions via database trigger
+      // Financial transactions are automatically created for sales orders based on their status
+      // (Order Confirmed = Rs. 0, Advance Paid = advance amount, Full Payment Done = full amount)
       
       // Inventory Adjustments
       ...adjustments.map(adj => {
@@ -141,19 +123,19 @@ const TransactionList = () => {
     }
     
     const matchesTab = currentTab === 'all' || 
-                      (currentTab === 'income' && (transaction.transactionType === 'financial' && transaction.displayType === 'Income' || transaction.transactionType === 'sales')) ||
-                      (currentTab === 'expense' && (transaction.transactionType === 'financial' && transaction.displayType === 'Expense' || transaction.transactionType === 'purchase'));
+                      (currentTab === 'income' && (transaction.transactionType === 'financial' && transaction.displayType === 'Income')) ||
+                      (currentTab === 'expense' && (transaction.transactionType === 'financial' && transaction.displayType === 'Expense'));
     
     return matchesSearch && matchesType && matchesCategory && matchesDateRange && matchesTab;
   });
 
   const totalIncome = filteredTransactions
-    .filter(t => t.transactionType === 'financial' && t.displayType === 'Income' || t.transactionType === 'sales')
+    .filter(t => t.transactionType === 'financial' && t.displayType === 'Income')
     .reduce((sum, t) => sum + t.amount, 0);
     
   const totalExpenses = filteredTransactions
-    .filter(t => t.transactionType === 'financial' && t.displayType === 'Expense' || t.transactionType === 'purchase')
-    .reduce((sum, t) => sum + t.amount, 0);
+    .filter(t => t.transactionType === 'financial' && t.displayType === 'Expense')
+    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
   const getTransactionTypeColor = (type: string) => {
     switch(type) {
@@ -405,6 +387,7 @@ const TransactionList = () => {
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          <TableHead className="w-14">Image</TableHead>
                           <TableHead>Date</TableHead>
                           <TableHead>Type</TableHead>
                           <TableHead>Reference</TableHead>
@@ -420,6 +403,25 @@ const TransactionList = () => {
                         {filteredTransactions.length > 0 ? (
                           filteredTransactions.map((transaction, index) => (
                             <TableRow key={index}>
+                              <TableCell className="p-2">
+                                {transaction.hasImages && transaction.bill_images?.length ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setImagePreview({ urls: transaction.bill_images, title: `${transaction.displayType} - ${transaction.displayId}` })}
+                                    className="rounded overflow-hidden border hover:opacity-80 transition-opacity"
+                                  >
+                                    <img
+                                      src={transaction.bill_images[0]}
+                                      alt=""
+                                      className="h-10 w-10 object-cover"
+                                    />
+                                  </button>
+                                ) : (
+                                  <div className="h-10 w-10 rounded border bg-muted flex items-center justify-center">
+                                    <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                                  </div>
+                                )}
+                              </TableCell>
                               <TableCell>{format(new Date(transaction.date), 'MMM d, yyyy')}</TableCell>
                               <TableCell>
                                 <Badge className={getTransactionTypeColor(transaction.displayType)}>
@@ -431,8 +433,8 @@ const TransactionList = () => {
                               <TableCell>
                                 <div className="flex items-center gap-2">
                                   {transaction.description}
-                                  {transaction.hasImages && (
-                                    <ImageIcon className="h-4 w-4 text-blue-500" title="Has bill images" />
+                                  {transaction.hasImages && transaction.bill_images && transaction.bill_images.length > 1 && (
+                                    <span className="text-xs text-muted-foreground">({transaction.bill_images.length} images)</span>
                                   )}
                                 </div>
                               </TableCell>
@@ -440,16 +442,13 @@ const TransactionList = () => {
                                 {transaction.itemSummary || '-'}
                               </TableCell>
                               <TableCell className={`text-right font-medium ${
-                                transaction.transactionType === 'financial' && transaction.displayType === 'Income' || 
-                                transaction.transactionType === 'sales' ? 'text-green-600' : 
+                                transaction.transactionType === 'financial' && transaction.displayType === 'Income' ? 'text-green-600' : 
                                 transaction.transactionType === 'financial' && transaction.displayType === 'Expense' || 
                                 transaction.transactionType === 'purchase' ? 'text-red-600' : ''
                               }`}>
                                 {transaction.amount ? 
-                                  (transaction.transactionType === 'financial' && transaction.displayType === 'Income' || 
-                                  transaction.transactionType === 'sales' ? '+' : 
-                                  transaction.transactionType === 'financial' && transaction.displayType === 'Expense' || 
-                                  transaction.transactionType === 'purchase' ? '-' : '') + 
+                                  (transaction.transactionType === 'financial' && transaction.displayType === 'Income' ? '+' : 
+                                  transaction.transactionType === 'financial' && transaction.displayType === 'Expense' ? '-' : '') + 
                                   'Rs ' + transaction.amount.toFixed(2) : 
                                   '-'}
                               </TableCell>
@@ -484,7 +483,7 @@ const TransactionList = () => {
                           ))
                         ) : (
                           <TableRow>
-                            <TableCell colSpan={9} className="text-center py-6 text-muted-foreground">
+                            <TableCell colSpan={10} className="text-center py-6 text-muted-foreground">
                               No transactions found.
                             </TableCell>
                           </TableRow>
@@ -498,6 +497,21 @@ const TransactionList = () => {
           </Tabs>
         </div>
       </div>
+
+      <Dialog open={!!imagePreview} onOpenChange={() => setImagePreview(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{imagePreview?.title || 'Images'}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-4">
+            {imagePreview?.urls.map((url, i) => (
+              <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block rounded-lg overflow-hidden border">
+                <img src={url} alt={`Image ${i + 1}`} className="w-full h-48 object-cover" />
+              </a>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 };

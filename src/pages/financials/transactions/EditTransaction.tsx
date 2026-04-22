@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Save, Upload, X, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Save, Upload, X, Image as ImageIcon, Calendar, Banknote } from 'lucide-react';
+import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { uploadMultipleImages, validateImageFile, deleteImage } from '@/lib/uploadUtils';
@@ -30,6 +31,12 @@ const EditTransaction = () => {
     paymentMethod: 'cash',
     referenceNumber: ''
   });
+  const [paymentTracking, setPaymentTracking] = useState<{
+    advancePaymentDate: string | null;
+    advanceAmount: number | null;
+    fullPaymentDate: string | null;
+    fullAmount: number | null;
+  } | null>(null);
 
   useEffect(() => {
     fetchTransaction();
@@ -57,7 +64,17 @@ const EditTransaction = () => {
           referenceNumber: data.reference_number || ''
         });
         
-        // Load existing images
+        if (data.category === 'sales' && data.type === 'income' && data.reference_number) {
+          setPaymentTracking({
+            advancePaymentDate: data.advance_payment_date || null,
+            advanceAmount: data.advance_amount != null ? Number(data.advance_amount) : null,
+            fullPaymentDate: data.full_payment_date || null,
+            fullAmount: data.full_amount != null ? Number(data.full_amount) : null
+          });
+        } else {
+          setPaymentTracking(null);
+        }
+        
         if (data.bill_images && Array.isArray(data.bill_images)) {
           setExistingImages(data.bill_images);
         }
@@ -145,6 +162,12 @@ const EditTransaction = () => {
       return;
     }
 
+    const amount = parseFloat(formData.amount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Amount must be greater than zero');
+      return;
+    }
+
     try {
       setIsLoading(true);
       let newImageUrls: string[] = [];
@@ -221,6 +244,45 @@ const EditTransaction = () => {
             </Button>
             <h1 className="text-3xl font-bold">Edit Transaction</h1>
           </div>
+
+          {paymentTracking && (paymentTracking.advancePaymentDate || paymentTracking.fullPaymentDate) && (
+            <Card className="border-bumble/30">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Banknote className="h-5 w-5" />
+                  Sales Order Payment History
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {paymentTracking.advancePaymentDate && (
+                    <div className="rounded-lg border p-4 space-y-1">
+                      <p className="text-sm font-medium text-muted-foreground">Advance Payment</p>
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <span>{format(new Date(paymentTracking.advancePaymentDate), 'MMM d, yyyy')}</span>
+                      </div>
+                      {paymentTracking.advanceAmount != null && (
+                        <p className="text-lg font-semibold text-green-600">Rs {paymentTracking.advanceAmount.toFixed(2)}</p>
+                      )}
+                    </div>
+                  )}
+                  {paymentTracking.fullPaymentDate && (
+                    <div className="rounded-lg border p-4 space-y-1">
+                      <p className="text-sm font-medium text-muted-foreground">Full Payment</p>
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <span>{format(new Date(paymentTracking.fullPaymentDate), 'MMM d, yyyy')}</span>
+                      </div>
+                      {paymentTracking.fullAmount != null && (
+                        <p className="text-lg font-semibold text-green-600">Rs {paymentTracking.fullAmount.toFixed(2)}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <form onSubmit={handleSubmit}>

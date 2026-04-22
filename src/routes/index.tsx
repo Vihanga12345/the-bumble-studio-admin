@@ -14,7 +14,6 @@ import InventoryRoutes from "./inventoryRoutes";
 import SalesRoutes from "./salesRoutes";
 import FinancialsRoutes from "./financialsRoutes";
 import UserRoutes from "./userRoutes";
-import SettingsRoutes from "./settingsRoutes";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -41,7 +40,6 @@ const AppRoutes = () => {
             {SalesRoutes}
                 {FinancialsRoutes}
                 {UserRoutes}
-                {SettingsRoutes}
                 
                 {/* 404 Route */}
                 <Route path="*" element={<NotFound />} />

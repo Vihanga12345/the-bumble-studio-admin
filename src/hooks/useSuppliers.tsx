@@ -1,5 +1,4 @@
-
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Supplier } from '@/types';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -168,6 +167,28 @@ export const useSuppliers = () => {
     return suppliers.find(s => s.id === id);
   };
 
+  const fetchSupplierById = useCallback(async (id: string): Promise<Supplier | null> => {
+    try {
+      const { data, error } = await supabase
+        .from('suppliers')
+        .select('*')
+        .eq('id', id)
+        .eq('business_id', '550e8400-e29b-41d4-a716-446655440000')
+        .single();
+      if (error || !data) return null;
+      return {
+        id: data.id,
+        name: data.name,
+        telephone: data.telephone || '',
+        address: data.address || '',
+        paymentTerms: data.payment_terms || '',
+        createdAt: new Date(data.created_at)
+      };
+    } catch {
+      return null;
+    }
+  }, []);
+
   return {
     suppliers,
     isLoading,
@@ -175,6 +196,7 @@ export const useSuppliers = () => {
     updateSupplier,
     deleteSupplier,
     getSupplierById,
+    fetchSupplierById,
     refreshSuppliers: fetchSuppliers
   };
 };

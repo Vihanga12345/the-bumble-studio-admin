@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
@@ -20,48 +20,52 @@ interface Transaction {
   date: string;
 }
 
+// Build a list of the last 24 months + "all" option
+const buildMonthOptions = () => {
+  const opts: { value: string; label: string }[] = [{ value: 'all', label: 'All Time' }];
+  const now = new Date();
+  for (let i = 0; i < 24; i++) {
+    const d = subMonths(now, i);
+    opts.push({
+      value: format(d, 'yyyy-MM'),
+      label: format(d, 'MMMM yyyy'),
+    });
+  }
+  return opts;
+};
+
+const MONTH_OPTIONS = buildMonthOptions();
+
 const CashflowPage = () => {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [timeframe, setTimeframe] = useState('month');
-  
-  const [period, setPeriod] = useState({
-    start: startOfMonth(new Date()),
-    end: endOfMonth(new Date())
-  });
+  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'));
+
+  const period = useMemo(() => {
+    if (selectedMonth === 'all') return null;
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const d = new Date(year, month - 1, 1);
+    return { start: startOfMonth(d), end: endOfMonth(d) };
+  }, [selectedMonth]);
 
   useEffect(() => {
     const fetchTransactions = async () => {
       try {
         setIsLoading(true);
-        
-        let startDate, endDate;
-        
-        if (timeframe === 'month') {
-          startDate = startOfMonth(new Date());
-          endDate = endOfMonth(new Date());
-        } else if (timeframe === 'quarter') {
-          startDate = startOfMonth(subMonths(new Date(), 2));
-          endDate = endOfMonth(new Date());
-        } else if (timeframe === 'year') {
-          startDate = startOfMonth(subMonths(new Date(), 11));
-          endDate = endOfMonth(new Date());
-        }
-        
-        setPeriod({ start: startDate!, end: endDate! });
-        
-        const { data, error } = await supabase
+        let query = supabase
           .from('financial_transactions')
           .select('*')
-          .gte('date', startDate!.toISOString())
-          .lte('date', endDate!.toISOString())
           .order('date', { ascending: true });
 
-        if (error) {
-          throw error;
+        if (period) {
+          query = query
+            .gte('date', period.start.toISOString())
+            .lte('date', period.end.toISOString());
         }
 
+        const { data, error } = await query;
+        if (error) throw error;
         setTransactions(data || []);
       } catch (error) {
         console.error('Error fetching transactions:', error);
@@ -72,59 +76,47 @@ const CashflowPage = () => {
     };
 
     fetchTransactions();
-  }, [timeframe]);
+  }, [period]);
 
   const totalIncome = transactions
     .filter(t => t.type.toLowerCase() === 'income')
     .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0);
-    
+
   const totalExpenses = transactions
     .filter(t => t.type.toLowerCase() === 'expense')
     .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0);
-    
+
   const netCashflow = totalIncome - totalExpenses;
 
-  // Prepare data for chart
-  const prepareChartData = () => {
-    const chartData: any[] = [];
-    
-    if (transactions.length === 0) return chartData;
-    
-    // Group by date (simplified for this example)
-    const groupedByDate = transactions.reduce((acc, transaction) => {
-      const date = transaction.date.split('T')[0];
-      if (!acc[date]) {
-        acc[date] = { income: 0, expense: 0 };
-      }
-      
-      if (transaction.type.toLowerCase() === 'income') {
-        acc[date].income += parseFloat(transaction.amount.toString());
-      } else {
-        acc[date].expense += parseFloat(transaction.amount.toString());
-      }
-      
+  const chartData = useMemo(() => {
+    if (transactions.length === 0) return [];
+    const grouped = transactions.reduce((acc, t) => {
+      const date = t.date.split('T')[0];
+      if (!acc[date]) acc[date] = { income: 0, expense: 0 };
+      if (t.type.toLowerCase() === 'income') acc[date].income += parseFloat(t.amount.toString());
+      else acc[date].expense += parseFloat(t.amount.toString());
       return acc;
     }, {} as Record<string, { income: number; expense: number }>);
-    
-    // Convert to array format for chart
-    Object.entries(groupedByDate).forEach(([date, values]) => {
-      chartData.push({
-        date: format(new Date(date), 'MMM dd'),
-        income: values.income,
-        expense: values.expense,
-        net: values.income - values.expense
-      });
-    });
-    
-    return chartData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  };
 
-  const chartData = prepareChartData();
+    return Object.entries(grouped)
+      .map(([date, v]) => ({
+        date: format(new Date(date), 'MMM dd'),
+        income: v.income,
+        expense: v.expense,
+        net: v.income - v.expense,
+      }))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [transactions]);
+
+  const periodLabel = period
+    ? `${format(period.start, 'MMM d, yyyy')} – ${format(period.end, 'MMM d, yyyy')}`
+    : 'All Time';
 
   return (
     <Layout>
       <div className="container mx-auto">
         <div className="flex flex-col gap-6">
+          {/* Header */}
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" onClick={() => navigate('/financials')} className="h-8 w-8">
               <ArrowLeft className="h-4 w-4" />
@@ -134,20 +126,22 @@ const CashflowPage = () => {
               <p className="text-muted-foreground">Track your income and expenses over time</p>
             </div>
           </div>
-          
+
+          {/* Month selector */}
           <div className="flex justify-end">
-            <Select value={timeframe} onValueChange={setTimeframe}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Select timeframe" />
+            <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Select month" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="month">This Month</SelectItem>
-                <SelectItem value="quarter">This Quarter</SelectItem>
-                <SelectItem value="year">This Year</SelectItem>
+                {MONTH_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
-          
+
+          {/* Summary cards */}
           <div className="grid gap-4 md:grid-cols-3">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -156,9 +150,10 @@ const CashflowPage = () => {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-green-600">Rs {totalIncome.toFixed(2)}</div>
+                <p className="text-xs text-muted-foreground mt-1">{periodLabel}</p>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
@@ -166,9 +161,10 @@ const CashflowPage = () => {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-red-600">Rs {totalExpenses.toFixed(2)}</div>
+                <p className="text-xs text-muted-foreground mt-1">{periodLabel}</p>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Net Cashflow</CardTitle>
@@ -178,19 +174,19 @@ const CashflowPage = () => {
                 <div className={`text-2xl font-bold ${netCashflow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   Rs {netCashflow.toFixed(2)}
                 </div>
+                <p className="text-xs text-muted-foreground mt-1">{periodLabel}</p>
               </CardContent>
             </Card>
           </div>
-          
+
+          {/* Chart */}
           <Card>
             <CardHeader>
-              <CardTitle>Cashflow Trend: {format(period.start, 'MMM d, yyyy')} - {format(period.end, 'MMM d, yyyy')}</CardTitle>
+              <CardTitle>Cashflow Trend — {periodLabel}</CardTitle>
             </CardHeader>
             <CardContent>
               {isLoading ? (
-                <div className="flex justify-center items-center h-[400px]">
-                  Loading chart data...
-                </div>
+                <div className="flex justify-center items-center h-[400px]">Loading chart data…</div>
               ) : chartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={400}>
                   <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
@@ -211,7 +207,8 @@ const CashflowPage = () => {
               )}
             </CardContent>
           </Card>
-          
+
+          {/* Transaction table */}
           <Card>
             <CardHeader>
               <CardTitle>Transaction Details</CardTitle>
@@ -229,18 +226,16 @@ const CashflowPage = () => {
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center py-8">
-                        Loading transactions...
-                      </TableCell>
+                      <TableCell colSpan={4} className="text-center py-8">Loading transactions…</TableCell>
                     </TableRow>
                   ) : transactions.length > 0 ? (
-                    transactions.map((transaction) => (
-                      <TableRow key={transaction.id} className="hover:bg-muted/50">
-                        <TableCell>{format(new Date(transaction.date), 'MMM d, yyyy')}</TableCell>
-                        <TableCell>{transaction.category}</TableCell>
-                        <TableCell>{transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}</TableCell>
-                        <TableCell className={`text-right font-medium ${transaction.type.toLowerCase() === 'income' ? 'text-green-600' : 'text-red-600'}`}>
-                          {transaction.type.toLowerCase() === 'income' ? '+' : '-'}Rs {parseFloat(transaction.amount.toString()).toFixed(2)}
+                    transactions.map((t) => (
+                      <TableRow key={t.id} className="hover:bg-muted/50">
+                        <TableCell>{format(new Date(t.date), 'MMM d, yyyy')}</TableCell>
+                        <TableCell>{t.category}</TableCell>
+                        <TableCell>{t.type.charAt(0).toUpperCase() + t.type.slice(1)}</TableCell>
+                        <TableCell className={`text-right font-medium ${t.type.toLowerCase() === 'income' ? 'text-green-600' : 'text-red-600'}`}>
+                          {t.type.toLowerCase() === 'income' ? '+' : '-'}Rs {parseFloat(t.amount.toString()).toFixed(2)}
                         </TableCell>
                       </TableRow>
                     ))

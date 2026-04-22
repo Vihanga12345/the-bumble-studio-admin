@@ -13,6 +13,8 @@ import { SaleItem, InventoryItem } from '@/types';
 import { toast } from 'sonner';
 import { useSales } from '@/hooks/useSales';
 import { useInventory } from '@/hooks/useInventory';
+import { useHides } from '@/hooks/useHides';
+import { getCrafterHourlyRate } from '@/lib/crafterSettings';
 
 interface OrderItem {
   id: string;
@@ -25,10 +27,31 @@ interface OrderItem {
   imageUrl?: string;
 }
 
+interface LinkedHideRow {
+  id: string;
+  hideId: string;
+  productId: string;
+  quantity: number;
+  manHours: number;
+  unitCostPerProduct: number;
+  lineTotal: number;
+}
+
+interface CostLineRow {
+  id: string;
+  itemType: 'MATERIAL' | 'CUSTOM';
+  inventoryItemId: string;
+  description: string;
+  quantity: number;
+  unitCost: number;
+  lineTotal: number;
+}
+
 const CreateSalesOrder = () => {
   const navigate = useNavigate();
   const { customers, addSalesOrder } = useSales();
   const { items } = useInventory();
+  const { getAvailableHides } = useHides();
   
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
@@ -45,6 +68,22 @@ const CreateSalesOrder = () => {
       totalPrice: 0
     }
   ]);
+  const [linkedHides, setLinkedHides] = useState<LinkedHideRow[]>([]);
+  const [costLines, setCostLines] = useState<CostLineRow[]>([]);
+  const [numberOfHours, setNumberOfHours] = useState<number>(0);
+  const [hourlyFee, setHourlyFee] = useState<number>(200);
+
+  const availableHides = getAvailableHides();
+  const craftingItems = items.filter((item) => item.itemCategory === 'Crafting' && item.isActive);
+
+  useEffect(() => {
+    const loadCrafterHourlyRate = async () => {
+      const rate = await getCrafterHourlyRate();
+      setHourlyFee(rate);
+    };
+
+    loadCrafterHourlyRate();
+  }, []);
 
   const handleAddItem = () => {
     setSaleItems([
@@ -136,7 +175,29 @@ const CreateSalesOrder = () => {
         items: orderItems,
         paymentMethod: 'cash',
         status: 'pending',
-        notes: notes
+        notes: notes,
+        numberOfHours,
+        hourlyFee,
+        linkedHides: linkedHides
+          .filter((hide) => hide.hideId)
+          .map((hide) => ({
+            hideId: hide.hideId,
+            productId: hide.productId || null,
+            quantity: hide.quantity,
+            manHours: hide.manHours,
+            unitCostPerProduct: hide.unitCostPerProduct,
+            lineTotal: hide.lineTotal
+          })),
+        costLines: costLines
+          .filter((line) => line.quantity > 0 && (line.itemType === 'MATERIAL' ? line.inventoryItemId : line.description.trim()))
+          .map((line) => ({
+            itemType: line.itemType,
+            inventoryItemId: line.itemType === 'MATERIAL' ? line.inventoryItemId : null,
+            description: line.description,
+            quantity: line.quantity,
+            unitCost: line.unitCost,
+            lineTotal: line.lineTotal
+          }))
       });
       
       toast.success('Sales Order created successfully');
@@ -146,6 +207,96 @@ const CreateSalesOrder = () => {
       toast.error('Error creating sales order: ' + (error as Error).message);
     }
   };
+
+  const handleAddHide = () => {
+    setLinkedHides((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString(),
+        hideId: '',
+        productId: '',
+        quantity: 1,
+        manHours: 0,
+        unitCostPerProduct: 0,
+        lineTotal: 0
+      }
+    ]);
+  };
+
+  const handleHideChange = (
+    rowId: string,
+    changes: Partial<{ hideId: string; productId: string; quantity: number; manHours: number; unitCostPerProduct: number }>
+  ) => {
+    setLinkedHides((prev) =>
+      prev.map((hide) => {
+        if (hide.id !== rowId) return hide;
+        const next = { ...hide, ...changes };
+        if (changes.hideId) {
+          const selectedHide = availableHides.find((entry) => entry.id === changes.hideId);
+          if (selectedHide && (changes.unitCostPerProduct === undefined || changes.unitCostPerProduct === 0)) {
+            next.unitCostPerProduct = selectedHide.costPerProduct || 0;
+          }
+        }
+        next.lineTotal = (Number(next.quantity) || 0) * (Number(next.unitCostPerProduct) || 0);
+        return next;
+      })
+    );
+  };
+
+  const handleRemoveHide = (rowId: string) => {
+    setLinkedHides((prev) => prev.filter((hide) => hide.id !== rowId));
+  };
+
+  const handleAddCostLine = () => {
+    setCostLines((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString(),
+        itemType: 'MATERIAL',
+        inventoryItemId: '',
+        description: '',
+        quantity: 1,
+        unitCost: 0,
+        lineTotal: 0
+      }
+    ]);
+  };
+
+  const handleCostLineChange = (
+    rowId: string,
+    changes: Partial<Pick<CostLineRow, 'itemType' | 'inventoryItemId' | 'description' | 'quantity' | 'unitCost'>>
+  ) => {
+    setCostLines((prev) =>
+      prev.map((line) => {
+        if (line.id !== rowId) return line;
+        const next = { ...line, ...changes };
+        if (changes.itemType === 'CUSTOM') {
+          next.inventoryItemId = '';
+        }
+        if (next.itemType === 'MATERIAL' && changes.inventoryItemId) {
+          const selectedMaterial = craftingItems.find((item) => item.id === changes.inventoryItemId);
+          if (selectedMaterial) {
+            next.description = selectedMaterial.name;
+            if (changes.unitCost === undefined || changes.unitCost === 0) {
+              next.unitCost = selectedMaterial.purchaseCost || 0;
+            }
+          }
+        }
+        next.lineTotal = (Number(next.quantity) || 0) * (Number(next.unitCost) || 0);
+        return next;
+      })
+    );
+  };
+
+  const handleRemoveCostLine = (rowId: string) => {
+    setCostLines((prev) => prev.filter((line) => line.id !== rowId));
+  };
+
+  const calculateHideCostTotal = () => linkedHides.reduce((total, row) => total + row.lineTotal, 0);
+  const calculateAdditionalCostLinesTotal = () => costLines.reduce((total, row) => total + row.lineTotal, 0);
+  const calculateCrafterLabourCost = () => (Number(numberOfHours) || 0) * (Number(hourlyFee) || 0);
+  const calculateProductionCostTotal = () =>
+    calculateHideCostTotal() + calculateAdditionalCostLinesTotal() + calculateCrafterLabourCost();
 
   return (
     <Layout>
@@ -217,8 +368,19 @@ const CreateSalesOrder = () => {
                                     value={inventoryItem.id}
                                     disabled={inventoryItem.currentStock <= 0}
                                   >
-                                    {inventoryItem.name} 
-                                    {inventoryItem.currentStock <= 0 ? ' (Out of stock)' : ''}
+                                    <div className="flex items-center gap-2">
+                                      {inventoryItem.imageUrl ? (
+                                        <img src={inventoryItem.imageUrl} alt="" className="w-8 h-8 object-cover rounded flex-shrink-0" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                      ) : (
+                                        <div className="w-8 h-8 bg-muted rounded flex-shrink-0 flex items-center justify-center">
+                                          <Package className="h-4 w-4 text-muted-foreground" />
+                                        </div>
+                                      )}
+                                      <span className="truncate">
+                                        {inventoryItem.name} 
+                                        {inventoryItem.currentStock <= 0 ? ' (Out of stock)' : ''}
+                                      </span>
+                                    </div>
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -277,6 +439,208 @@ const CreateSalesOrder = () => {
                     Add Item
                   </Button>
                 </div>
+
+                <div className="mt-6 border-t pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold">Hide Details</h3>
+                    <Button type="button" size="sm" variant="outline" onClick={handleAddHide}>
+                      <Plus className="h-3 w-3 mr-1" />
+                      Add Hide
+                    </Button>
+                  </div>
+                  <div className="space-y-3">
+                    {linkedHides.map((hide) => (
+                      <div key={hide.id} className="grid grid-cols-1 md:grid-cols-7 gap-2 border rounded-md p-3">
+                        <Select value={hide.hideId} onValueChange={(value) => handleHideChange(hide.id, { hideId: value })}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Available Hide" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableHides.map((item) => (
+                                <SelectItem key={item.id} value={item.id}>
+                                  <div className="flex items-center gap-2">
+                                    {item.imageUrls?.[0] ? (
+                                      <img src={item.imageUrls[0]} alt="" className="w-8 h-8 object-cover rounded flex-shrink-0" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                    ) : (
+                                      <div className="w-8 h-8 bg-muted rounded flex-shrink-0" />
+                                    )}
+                                    <span className="truncate">{item.hideName}</span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+
+                        <Select value={hide.productId} onValueChange={(value) => handleHideChange(hide.id, { productId: value })}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selling Item" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {saleItems
+                              .filter((line) => line.productId)
+                              .map((line) => (
+                                <SelectItem key={`${hide.id}-${line.id}`} value={line.productId}>
+                                  {line.name}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+
+                        <Input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          placeholder="Qty"
+                          value={hide.quantity}
+                          onChange={(e) => handleHideChange(hide.id, { quantity: parseFloat(e.target.value) || 0 })}
+                        />
+
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          placeholder="Man hours"
+                          value={hide.manHours}
+                          onChange={(e) => handleHideChange(hide.id, { manHours: parseFloat(e.target.value) || 0 })}
+                        />
+
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="Cost / product"
+                          value={hide.unitCostPerProduct}
+                          onChange={(e) => handleHideChange(hide.id, { unitCostPerProduct: parseFloat(e.target.value) || 0 })}
+                        />
+
+                        <Input
+                          type="number"
+                          value={hide.lineTotal.toFixed(2)}
+                          disabled
+                        />
+
+                        <Button type="button" variant="ghost" onClick={() => handleRemoveHide(hide.id)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    ))}
+                    {linkedHides.length === 0 && (
+                      <p className="text-xs text-muted-foreground">Add one or more available hides used for this sales order.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-6 border-t pt-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">Crafting Materials & Other Expenses</h3>
+                    <Button type="button" size="sm" variant="outline" onClick={handleAddCostLine}>
+                      <Plus className="h-3 w-3 mr-1" />
+                      Add Expense Line
+                    </Button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {costLines.map((line) => (
+                      <div key={line.id} className="grid grid-cols-1 md:grid-cols-7 gap-2 border rounded-md p-3">
+                        <Select value={line.itemType} onValueChange={(value) => handleCostLineChange(line.id, { itemType: value as 'MATERIAL' | 'CUSTOM' })}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="MATERIAL">Material</SelectItem>
+                            <SelectItem value="CUSTOM">Custom</SelectItem>
+                          </SelectContent>
+                        </Select>
+
+                        {line.itemType === 'MATERIAL' ? (
+                          <Select value={line.inventoryItemId} onValueChange={(value) => handleCostLineChange(line.id, { inventoryItemId: value })}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select material" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {craftingItems.map((material) => (
+                                <SelectItem key={material.id} value={material.id}>
+                                  {material.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            placeholder="Expense description"
+                            value={line.description}
+                            onChange={(e) => handleCostLineChange(line.id, { description: e.target.value })}
+                          />
+                        )}
+
+                        <Input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          placeholder="Qty"
+                          value={line.quantity}
+                          onChange={(e) => handleCostLineChange(line.id, { quantity: parseFloat(e.target.value) || 0 })}
+                        />
+
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="Unit cost"
+                          value={line.unitCost}
+                          onChange={(e) => handleCostLineChange(line.id, { unitCost: parseFloat(e.target.value) || 0 })}
+                        />
+
+                        <Input
+                          type="number"
+                          value={line.lineTotal.toFixed(2)}
+                          disabled
+                        />
+
+                        <Button type="button" variant="ghost" onClick={() => handleRemoveCostLine(line.id)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    ))}
+                    {costLines.length === 0 && (
+                      <p className="text-xs text-muted-foreground">Add threads, glue, packing, and any custom production expenses here.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-6 border-t pt-4">
+                  <h3 className="text-sm font-semibold mb-3">Labour Costing</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <Label className="mb-1 block">Number of hours</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={numberOfHours}
+                        onChange={(e) => setNumberOfHours(parseFloat(e.target.value) || 0)}
+                      />
+                    </div>
+                    <div>
+                      <Label className="mb-1 block">Hourly fee (Rs)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={hourlyFee}
+                        onChange={(e) => setHourlyFee(parseFloat(e.target.value) || 0)}
+                      />
+                    </div>
+                    <div>
+                      <Label className="mb-1 block">Crafter labour (Rs)</Label>
+                      <Input
+                        type="number"
+                        value={calculateCrafterLabourCost().toFixed(2)}
+                        disabled
+                      />
+                    </div>
+                  </div>
+                </div>
               </CardContent>
               <CardFooter className="border-t p-4 flex-col space-y-2">
                 <div className="flex justify-between w-full">
@@ -314,6 +678,16 @@ const CreateSalesOrder = () => {
                 <div className="flex justify-between w-full pt-2 border-t">
                   <div className="text-lg font-medium">Total</div>
                   <div className="text-lg font-bold">Rs {calculateTotal().toFixed(2)}</div>
+                </div>
+                <div className="flex justify-between w-full pt-2 border-t">
+                  <div className="text-sm font-medium">Production Cost Breakdown</div>
+                  <div className="text-sm font-medium">
+                    Hide: Rs {calculateHideCostTotal().toFixed(2)} | Materials: Rs {calculateAdditionalCostLinesTotal().toFixed(2)} | Labour: Rs {calculateCrafterLabourCost().toFixed(2)}
+                  </div>
+                </div>
+                <div className="flex justify-between w-full">
+                  <div className="text-lg font-medium">Total Production Cost</div>
+                  <div className="text-lg font-bold">Rs {calculateProductionCostTotal().toFixed(2)}</div>
                 </div>
               </CardFooter>
             </Card>

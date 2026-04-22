@@ -5,7 +5,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useERPAuth } from '@/contexts/ERPAuthContext';
 import { 
   ShoppingBag,
-  PlusCircle
+  PlusCircle,
+  Clock3
 } from 'lucide-react';
 
 const SalesPage = () => {
@@ -27,6 +28,14 @@ const SalesPage = () => {
       icon: ShoppingBag,
       path: '/sales/website-orders',
       color: 'bg-purple-500',
+      count: 0
+    },
+    {
+      title: 'Crafter Details',
+      description: 'Month-wise crafted items, hours, and fee withdrawals',
+      icon: Clock3,
+      path: '/sales/crafter-details',
+      color: 'bg-amber-500',
       count: 0
     }
   ];

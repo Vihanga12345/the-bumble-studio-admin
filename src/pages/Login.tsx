@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Eye, EyeOff, LogIn, AlertCircle } from 'lucide-react';
 import { useERPAuth } from '@/contexts/ERPAuthContext';
-const logo = '/The Bumble Studio LOGO.png';
+const logo = '/bumble-logo.png';
 
 const Login = () => {
   const { signIn, isAuthenticated, isLoading } = useERPAuth();
@@ -80,10 +80,10 @@ const Login = () => {
         <Card className="border-gray-700 bg-gray-800">
           <CardHeader className="text-center">
             <div className="flex justify-center">
-              <img src={logo} alt="The Bumble Studio Logo" className="h-20 w-auto max-w-[200px] object-contain" />
+              <img src={logo} alt="Bumble Studio Logo" className="h-20 w-auto max-w-[200px] object-contain" />
             </div>
             <CardTitle className="text-2xl font-bold text-white">
-              The Bumble Studio Admin
+              Admin
             </CardTitle>
             <p className="text-gray-400 text-sm">
               Sign in to access the admin panel

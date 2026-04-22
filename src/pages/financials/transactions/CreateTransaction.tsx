@@ -93,6 +93,12 @@ const CreateTransaction = () => {
       return;
     }
 
+    const amount = parseFloat(formData.amount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Amount must be greater than zero');
+      return;
+    }
+
     try {
       setIsLoading(true);
       let imageUrls: string[] = [];
@@ -116,20 +122,22 @@ const CreateTransaction = () => {
         }
       }
       
+      const insertPayload: Record<string, unknown> = {
+        type: formData.type,
+        amount: parseFloat(formData.amount),
+        category: formData.category,
+        description: formData.description,
+        date: new Date(formData.date).toISOString(),
+        payment_method: formData.paymentMethod,
+        reference_number: formData.referenceNumber || null
+      };
+      if (imageUrls.length > 0) {
+        insertPayload.bill_images = imageUrls;
+      }
+
       const { data, error } = await supabase
         .from('financial_transactions')
-        .insert([
-          {
-            type: formData.type,
-            amount: parseFloat(formData.amount),
-            category: formData.category,
-            description: formData.description,
-            date: new Date(formData.date).toISOString(),
-            payment_method: formData.paymentMethod,
-            reference_number: formData.referenceNumber || null,
-            bill_images: imageUrls.length > 0 ? imageUrls : null
-          }
-        ])
+        .insert([insertPayload])
         .select();
 
       if (error) {

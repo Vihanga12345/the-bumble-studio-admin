@@ -45,7 +45,7 @@ interface OrderImage {
 const SalesOrderDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { salesOrders, updateSalesOrder, fetchSalesOrders } = useSales();
+  const { salesOrders, updateSalesOrder } = useSales();
   const { items, adjustStock } = useInventory();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   
@@ -304,41 +304,66 @@ const SalesOrderDetail = () => {
       toast.error('Please enter a valid advance payment amount');
       return;
     }
-    const totalAmt = Number((order as any).totalAmount ?? (order as any).total_amount ?? 0);
-    const remaining = Math.max(totalAmt - advance, 0);
-
-    // Decide the high-level order_status that triggers the DB finance record
-    const currentWorkflowStatus = (order as any).status || 'Order Confirmed';
-    const newOrderStatus = advance > 0 ? 'Advance Paid' : 'Order Confirmed';
-    // Only bump workflow status if it hasn't moved past 'Order Confirmed' yet
-    const newWorkflowStatus =
-      advance > 0 && currentWorkflowStatus === 'Order Confirmed'
-        ? 'Advance Paid'
-        : currentWorkflowStatus;
+    const total = order.totalAmount || 0;
+    const remaining = Math.max(total - advance, 0);
+    // Compute a matching percentage so the DB BEFORE trigger back-calculates the
+    // exact advance_payment_amount instead of overriding it to 0.
+    const advancePercentage = total > 0
+      ? parseFloat(((advance / total) * 100).toFixed(10))
+      : 0;
+    // If an advance > 0 is being recorded, mark the order as Advance Paid so the
+    // DB AFTER trigger creates / updates the financial transaction automatically.
+    const newOrderStatus = advance > 0 ? 'Advance Paid' : (order as any).order_status;
 
     setIsSavingAdvance(true);
     try {
-      // Update sales order — also set order_status so the DB trigger
-      // (handle_order_stock_and_finance) fires and writes the finance record.
       const { error } = await supabase
         .from('sales_orders')
         .update({
           advance_payment_amount: advance,
+          advance_payment_percentage: advancePercentage,
           remaining_balance: remaining,
           order_status: newOrderStatus,
-          status: newWorkflowStatus,
         })
         .eq('id', id);
       if (error) throw error;
 
-      // Refresh the hook so re-opening the order shows the saved amount
-      await fetchSalesOrders();
-      setOrder((prev: any) =>
-        prev
-          ? { ...prev, advancePaymentAmount: advance, remainingBalance: remaining, status: newWorkflowStatus }
-          : prev
-      );
-      toast.success('Advance payment saved and recorded in finance');
+      // Also upsert the financial transaction directly in case the DB trigger
+      // doesn't fire (e.g. order_status was already 'Advance Paid' and didn't change).
+      if (advance > 0) {
+        const BUSINESS_ID = '550e8400-e29b-41d4-a716-446655440000';
+        const orderNum = (order as any).orderNumber ?? (order as any).order_number;
+        const { data: existing } = await supabase
+          .from('financial_transactions')
+          .select('id')
+          .eq('reference_number', orderNum)
+          .eq('category', 'sales')
+          .eq('type', 'income')
+          .maybeSingle();
+
+        if (existing) {
+          await supabase
+            .from('financial_transactions')
+            .update({ amount: advance, description: `Advance Paid - Sales Order ${orderNum}`, updated_at: new Date().toISOString() } as any)
+            .eq('id', existing.id);
+        } else {
+          await supabase
+            .from('financial_transactions')
+            .insert({
+              business_id: BUSINESS_ID,
+              type: 'income',
+              amount: advance,
+              category: 'sales',
+              description: `Advance Paid - Sales Order ${orderNum}`,
+              date: new Date().toISOString(),
+              payment_method: 'manual',
+              reference_number: orderNum,
+            } as any);
+        }
+      }
+
+      setOrder({ ...order, advancePaymentAmount: advance, remainingBalance: remaining });
+      toast.success('Advance payment saved and finance record updated');
     } catch (err) {
       toast.error(`Failed to save: ${(err as Error).message}`);
     } finally {

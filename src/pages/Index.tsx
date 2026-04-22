@@ -54,7 +54,7 @@ const Index: React.FC = () => {
 
   return (
     <Layout>
-      <div className="container mx-auto animate-fade-in">
+      <div className="container mx-auto px-2 sm:px-4 animate-fade-in">
         <div className="space-y-6">
           {/* Welcome Section */}
           <div className="rounded-lg p-6 glass">
@@ -78,7 +78,7 @@ const Index: React.FC = () => {
           </div>
           
           {/* Module Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {filteredCards.map((card, index) => (
               <Card 
                 key={card.title}

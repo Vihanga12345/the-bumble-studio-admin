@@ -6,53 +6,52 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, Loader2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSuppliers } from '@/hooks/useSuppliers';
-
-const paymentTermsOptions = [
-  { value: 'Net 7', label: 'Net 7 days' },
-  { value: 'Net 15', label: 'Net 15 days' },
-  { value: 'Net 30', label: 'Net 30 days' },
-  { value: 'Net 45', label: 'Net 45 days' },
-  { value: 'Net 60', label: 'Net 60 days' },
-  { value: 'COD', label: 'Cash on Delivery' }
-];
 
 const SupplierForm = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditMode = !!id;
-  const { addSupplier, updateSupplier, getSupplierById } = useSuppliers();
+  const { addSupplier, updateSupplier, fetchSupplierById } = useSuppliers();
 
   const [formData, setFormData] = useState({
     name: '',
     telephone: '',
     address: '',
-    paymentTerms: 'Net 30'
+    paymentTerms: ''
   });
+  const [isLoadingSupplier, setIsLoadingSupplier] = useState(false);
 
   useEffect(() => {
-    if (isEditMode && id) {
-      const supplier = getSupplierById(id);
-      if (supplier) {
-        const { name, telephone, address, paymentTerms } = supplier;
-        setFormData({ name, telephone, address, paymentTerms });
-      } else {
-        toast.error('Supplier not found');
-        navigate('/procurement/suppliers');
-      }
-    }
-  }, [id, isEditMode, getSupplierById, navigate]);
+    if (!isEditMode || !id) return;
+    let cancelled = false;
+    setIsLoadingSupplier(true);
+    fetchSupplierById(id)
+      .then((supplier) => {
+        if (cancelled) return;
+        setIsLoadingSupplier(false);
+        if (supplier) {
+          setFormData({ name: supplier.name, telephone: supplier.telephone, address: supplier.address, paymentTerms: supplier.paymentTerms || '' });
+        } else {
+          toast.error('Supplier not found');
+          navigate('/procurement/suppliers');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIsLoadingSupplier(false);
+          toast.error('Failed to load supplier');
+          navigate('/procurement/suppliers');
+        }
+      });
+    return () => { cancelled = true; };
+  }, [id, isEditMode, fetchSupplierById, navigate]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSelectChange = (value: string) => {
-    setFormData(prev => ({ ...prev, paymentTerms: value }));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -109,6 +108,13 @@ const SupplierForm = () => {
                 <CardTitle>Supplier Information</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {isLoadingSupplier && (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+                {!isLoadingSupplier && (
+                <>
                 <div className="space-y-2">
                   <Label htmlFor="name">Supplier Name</Label>
                   <Input
@@ -144,31 +150,14 @@ const SupplierForm = () => {
                     required
                   />
                 </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="paymentTerms">Payment Terms</Label>
-                  <Select 
-                    value={formData.paymentTerms} 
-                    onValueChange={handleSelectChange}
-                  >
-                    <SelectTrigger id="paymentTerms">
-                      <SelectValue placeholder="Select payment terms" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {paymentTermsOptions.map(option => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                </>
+                )}
               </CardContent>
               <CardFooter className="justify-end space-x-2">
-                <Button variant="outline" type="button" onClick={() => navigate('/procurement/suppliers')}>
+                <Button variant="outline" type="button" onClick={() => navigate('/procurement/suppliers')} disabled={isLoadingSupplier}>
                   Cancel
                 </Button>
-                <Button type="submit">
+                <Button type="submit" disabled={isLoadingSupplier}>
                   <Save className="h-4 w-4 mr-2" />
                   {isEditMode ? 'Update Supplier' : 'Add Supplier'}
                 </Button>

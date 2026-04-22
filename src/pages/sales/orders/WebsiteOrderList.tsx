@@ -156,7 +156,7 @@ export default function WebsiteOrderList() {
 
   // Navigate to edit order
   const handleEditOrder = (orderId: string) => {
-    navigate(`/sales/orders/${orderId}/edit`);
+    navigate(`/sales/orders/manual?editOrderId=${orderId}&source=website`);
   };
 
   // Get status badge variant
@@ -404,8 +404,9 @@ export default function WebsiteOrderList() {
                       {filteredOrders.map((order) => (
                         <TableRow
                           key={order.id}
+                          data-mobile-clickable="true"
                           className="cursor-pointer hover:bg-muted/50"
-                          onClick={() => navigate(`/sales/orders/${order.id}`)}
+                          onClick={() => handleEditOrder(order.id)}
                         >
                           <TableCell className="font-medium">
                             {order.order_number}
@@ -493,6 +494,7 @@ export default function WebsiteOrderList() {
                               <Button
                                 size="sm"
                                 variant="ghost"
+                                className="hidden md:inline-flex"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleEditOrder(order.id);

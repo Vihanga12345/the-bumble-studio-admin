@@ -11,6 +11,7 @@ import SalesOrderDetail from "@/pages/sales/orders/SalesOrderDetail";
 import WebsiteOrderList from "@/pages/sales/orders/WebsiteOrderList";
 import SalesReturnsPage from "@/pages/sales/returns/SalesReturnsPage";
 import SalesReportsPage from "@/pages/sales/reports/SalesReportsPage";
+import CrafterDetails from "@/pages/sales/crafter/CrafterDetails";
 
 const SalesRoutes = (
   <Route path="/sales">
@@ -59,6 +60,11 @@ const SalesRoutes = (
         <WebsiteOrderList />
       </ProtectedRoute>
     } />
+    <Route path="crafter-details" element={
+      <ProtectedRoute>
+        <CrafterDetails />
+      </ProtectedRoute>
+    } />
     <Route path="pos" element={
       <ProtectedRoute>
         <POSPage />
@@ -103,6 +109,10 @@ export const salesRoutes = [
   {
     path: '/sales/website-orders',
     element: <WebsiteOrderList />
+  },
+  {
+    path: '/sales/crafter-details',
+    element: <CrafterDetails />
   },
   {
     path: '/sales/customers',

@@ -50,6 +50,8 @@ const PurchaseOrderDetail = () => {
   const { items: inventoryItems } = useInventory();
   
   const [order, setOrder] = useState(id ? getPurchaseOrderById(id) : null);
+  const [linkedHides, setLinkedHides] = useState<any[]>([]);
+  const [poImages, setPoImages] = useState<string[]>([]);
   
   useEffect(() => {
     if (id) {
@@ -57,6 +59,37 @@ const PurchaseOrderDetail = () => {
       setOrder(purchaseOrder);
     }
   }, [id, getPurchaseOrderById]);
+
+  useEffect(() => {
+    if (order?.poImages?.length) setPoImages(order.poImages);
+    else if (order?.id) {
+      (async () => {
+        const { data } = await (supabase as any).from('purchase_order_images').select('image_url').eq('purchase_order_id', order.id).order('sort_order', { ascending: true });
+        setPoImages((data || []).map((r: any) => r.image_url));
+      })();
+    } else setPoImages([]);
+  }, [order?.id, order?.poImages]);
+
+  useEffect(() => {
+    const loadLinkedHides = async () => {
+      if (!order?.id) return;
+      const { data, error } = await (supabase as any)
+        .from('purchase_order_hides')
+        .select(`
+          *,
+          hides(hide_name)
+        `)
+        .eq('purchase_order_id', order.id);
+
+      if (error) {
+        console.error('Error loading linked hides:', error);
+        return;
+      }
+      setLinkedHides(data || []);
+    };
+
+    loadLinkedHides();
+  }, [order?.id]);
 
   useEffect(() => {
     const loadOrderItems = async () => {
@@ -81,7 +114,8 @@ const PurchaseOrderDetail = () => {
             unitCost: item.unit_cost,
             totalCost: item.total_cost,
             receivedQuantity: item.received_quantity || 0,
-            itemId: item.item_id
+            itemId: item.item_id,
+            imageUrl: inventoryItem?.imageUrl
           };
         });
 
@@ -285,7 +319,60 @@ const PurchaseOrderDetail = () => {
               </Table>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Linked Hides</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Hide</TableHead>
+                    <TableHead className="text-right">Quantity</TableHead>
+                    <TableHead className="text-right">Unit Price</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {linkedHides.length > 0 ? (
+                    linkedHides.map((link: any) => (
+                      <TableRow key={link.id}>
+                        <TableCell>{link.hides?.hide_name || 'Hide'}</TableCell>
+                        <TableCell className="text-right">{Number(link.quantity || 0).toFixed(2)}</TableCell>
+                        <TableCell className="text-right">Rs {Number(link.unit_price || 0).toFixed(2)}</TableCell>
+                        <TableCell className="text-right">
+                          Rs {(Number(link.quantity || 0) * Number(link.unit_price || 0)).toFixed(2)}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-muted-foreground">
+                        No hides linked to this purchase order
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
           
+          {poImages.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>PO Images</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  {poImages.map((url, idx) => (
+                    <img key={idx} src={url} alt={`PO ${idx + 1}`} className="w-24 h-24 object-cover rounded border" onError={(e) => { e.currentTarget.src = '/placeholder.svg?height=96&width=96'; }} />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {order.notes && (
             <Card>
               <CardHeader>

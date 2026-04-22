@@ -120,19 +120,6 @@ const ProfilePage = () => {
             </CardContent>
           </Card>
 
-          <Card className="md:col-span-3">
-            <CardHeader>
-              <CardTitle>Account Settings</CardTitle>
-            </CardHeader>
-            <CardContent className="flex space-x-4">
-              <Button onClick={() => navigate('/settings')}>
-                Edit Profile
-              </Button>
-              <Button variant="outline" onClick={() => navigate('/settings/password')}>
-                Change Password
-              </Button>
-            </CardContent>
-          </Card>
         </div>
       </div>
     </Layout>

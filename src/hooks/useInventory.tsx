@@ -52,8 +52,8 @@ export function useInventory() {
             return [];
           }
         })() as ProductType[],
-        // E-commerce fields
-        isWebsiteItem: item.is_website_item || false,
+        // E-commerce fields - explicit: only true when DB has true
+        isWebsiteItem: item.is_website_item === true,
         imageUrl: item.image_url || '',
         additionalImages: (() => {
           try {
@@ -265,8 +265,8 @@ export function useInventory() {
       if (itemData.isActive !== undefined) updateData.is_active = itemData.isActive;
       if (itemData.itemType !== undefined) updateData.item_type = itemData.itemType;
       
-      // Website-related fields
-      if ((itemData as any).isWebsiteItem !== undefined) updateData.is_website_item = (itemData as any).isWebsiteItem || false;
+      // Website-related fields - explicit boolean: false when switch off
+      if ((itemData as any).isWebsiteItem !== undefined) updateData.is_website_item = (itemData as any).isWebsiteItem === true;
       if ((itemData as any).imageUrl !== undefined) updateData.image_url = (itemData as any).imageUrl || null;
       if ((itemData as any).additionalImages !== undefined) updateData.additional_images = JSON.stringify((itemData as any).additionalImages || []);
       if ((itemData as any).salePrice !== undefined) updateData.sale_price = (itemData as any).salePrice ? parseFloat((itemData as any).salePrice) : null;

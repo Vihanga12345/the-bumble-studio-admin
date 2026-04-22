@@ -10,7 +10,6 @@ import ResponsiveTable from '@/components/ui/responsive-table';
 import { ArrowLeft, Plus, Search, Download, FileText, Eye } from 'lucide-react';
 import { useSales } from '@/hooks/useSales';
 import { format } from 'date-fns';
-import { SalesOrderStatus } from '@/types';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 
@@ -24,25 +23,28 @@ const SalesOrderList = () => {
     (order.customer && order.customer.name.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const getStatusColor = (status: SalesOrderStatus) => {
-    switch (status) {
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200';
-      case 'processing':
-        return 'bg-blue-100 text-blue-800 hover:bg-blue-200';
-      case 'shipped':
-        return 'bg-purple-100 text-purple-800 hover:bg-purple-200';
-      case 'completed':
-        return 'bg-green-100 text-green-800 hover:bg-green-200';
-      case 'cancelled':
-        return 'bg-red-100 text-red-800 hover:bg-red-200';
-      default:
-        return 'bg-gray-100 text-gray-800 hover:bg-gray-200';
-    }
+  const getStatusColor = (status: string) => {
+    const s = (status || '').toLowerCase();
+    if (s.includes('full payment') || s === 'completed' || s === 'delivered') return 'bg-bumble text-foreground hover:bg-bumble-dark';
+    if (s.includes('advance paid') || s === 'processing') return 'bg-bumble/20 text-bumble hover:bg-bumble/30';
+    if (s.includes('order confirmed') || s === 'pending') return 'bg-cream-dark text-leather-dark hover:bg-cream';
+    if (s === 'shipped') return 'bg-bumble-light/20 text-bumble-light hover:bg-bumble-light/30';
+    if (s === 'cancelled') return 'bg-red-900/20 text-red-400 hover:bg-red-900/30';
+    return 'bg-muted text-muted-foreground hover:bg-muted/80';
   };
 
-  const formatStatus = (status: SalesOrderStatus) => {
-    return status.charAt(0).toUpperCase() + status.slice(1);
+  const formatStatus = (status: string) => {
+    const s = (status || '').trim();
+    if (!s) return 'Pending';
+    if (s.includes(' ')) return s;
+    return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  };
+
+  const getDisplayStatus = (order: any) => {
+    if (order.order_source === 'manual' && order.order_status) {
+      return order.order_status;
+    }
+    return order.status || 'pending';
   };
 
   const exportToExcel = () => {
@@ -50,12 +52,25 @@ const SalesOrderList = () => {
       // Prepare data for Excel export
       const exportData = salesOrders.map(order => ({
         'Order Number': order.orderNumber,
+        'Order Source': order.orderSource || 'manual',
         'Customer': order.customer ? order.customer.name : 'Unknown',
+        'Customer Phone': order.customerPhone || order.customer?.telephone || '',
+        'Customer Email': order.customerEmail || order.customer?.email || '',
+        'Address': order.shippingAddress || order.customer?.address || '',
         'Date': format(new Date(order.orderDate), 'MMM d, yyyy'),
-        'Total Amount': `Rs ${order.totalAmount.toFixed(2)}`,
-        'Status': formatStatus(order.status),
+        'Total Amount': Number(order.totalAmount.toFixed(2)),
+        'Order Payment Status': order.order_status || '',
+        'Status': formatStatus(getDisplayStatus(order)),
         'Payment Method': order.paymentMethod.charAt(0).toUpperCase() + order.paymentMethod.slice(1),
-        'Items Count': order.items.length
+        'Advance Amount': Number((order.advancePaymentAmount ?? (order.totalAmount * 0.5)).toFixed(2)),
+        'Remaining Balance': Number((order.remainingBalance ?? (order.totalAmount - (order.advancePaymentAmount ?? (order.totalAmount * 0.5)))).toFixed(2)),
+        'Number of Hours': Number((order.numberOfHours || 0).toFixed(2)),
+        'Hourly Rate': Number((order.hourlyFee || 0).toFixed(2)),
+        'Crafter Labour Cost': Number((order.crafterLabourCost || 0).toFixed(2)),
+        'Production Cost Total': Number((order.productionCostTotal || 0).toFixed(2)),
+        'Estimated Profit': Number((order.totalAmount - (order.productionCostTotal || 0)).toFixed(2)),
+        'Items Count': order.items.length,
+        'Notes': order.notes || ''
       }));
       
       // Create workbook and add worksheet
@@ -101,27 +116,21 @@ const SalesOrderList = () => {
     },
     {
       key: 'totalAmount',
-      label: 'Amount',
+      label: 'Total Amount',
       className: 'text-right',
       render: (value: number) => `Rs ${value.toFixed(2)}`
     },
     {
-      key: 'advancePaymentAmount',
-      label: 'Advance',
-      className: 'text-right',
-      render: (_: number, row: any) => {
-        const advance = row.advancePaymentAmount ?? (row.totalAmount * 0.5);
-        return `Rs ${advance.toFixed(2)}`;
-      }
-    },
-    {
       key: 'status',
       label: 'Status',
-      render: (value: SalesOrderStatus) => (
-        <Badge className={getStatusColor(value)}>
-          {formatStatus(value)}
-        </Badge>
-      )
+      render: (_: any, row: any) => {
+        const displayStatus = getDisplayStatus(row);
+        return (
+          <Badge className={getStatusColor(displayStatus)}>
+            {formatStatus(displayStatus)}
+          </Badge>
+        );
+      }
     },
     {
       key: 'paymentMethod',

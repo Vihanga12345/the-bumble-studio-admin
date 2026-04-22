@@ -65,17 +65,26 @@ export default {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))'
         },
+        cream: {
+          light: 'hsl(var(--cream-light))',
+          DEFAULT: 'hsl(var(--cream))',
+          dark: 'hsl(var(--cream-dark))',
+        },
+        bumble: {
+          DEFAULT: 'hsl(var(--bumble-green))',
+          light: 'hsl(var(--bumble-green-light))',
+          dark: 'hsl(var(--bumble-green-dark))',
+        },
         leather: {
           dark: 'hsl(var(--leather-dark))',
-          medium: 'hsl(var(--leather-medium))',
+          DEFAULT: 'hsl(var(--leather))',
           light: 'hsl(var(--leather-light))',
         },
         gold: {
           DEFAULT: 'hsl(var(--gold))',
-          muted: 'hsl(var(--gold-muted))',
+          light: 'hsl(var(--gold-light))',
+          dark: 'hsl(var(--gold-dark))',
         },
-        bronze: 'hsl(var(--bronze))',
-        stitching: 'hsl(var(--stitching))',
         sidebar: {
           DEFAULT: 'hsl(var(--sidebar-background))',
           foreground: 'hsl(var(--sidebar-foreground))',
@@ -89,11 +98,13 @@ export default {
       },
       backgroundImage: {
         'gradient-leather': 'var(--gradient-leather)',
+        'gradient-green': 'var(--gradient-green)',
         'gradient-gold': 'var(--gradient-gold)',
         'gradient-hero': 'var(--gradient-hero)',
       },
       boxShadow: {
         'leather': 'var(--shadow-leather)',
+        'green-glow': 'var(--shadow-green-glow)',
         'gold-glow': 'var(--shadow-gold-glow)',
         'emboss': 'var(--shadow-emboss)',
       },

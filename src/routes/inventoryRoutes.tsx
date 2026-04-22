@@ -1,8 +1,10 @@
-import { Route } from "react-router-dom";
+import { Route, Navigate } from "react-router-dom";
 import ProtectedRoute from "./ProtectedRoute";
 import InventoryPage from "@/pages/inventory/InventoryPage";
 import ItemManagement from "@/pages/inventory/items/ItemManagement";
 import ItemForm from "@/pages/inventory/items/ItemForm";
+import HideForm from "@/pages/inventory/hides/HideForm";
+import HideDetail from "@/pages/inventory/hides/HideDetail";
 import StockVisibility from "@/pages/inventory/stock/StockVisibility";
 import Adjustments from "@/pages/inventory/adjustments/Adjustments";
 import GoodsReceiptPage from "@/pages/inventory/goods-receipt/GoodsReceiptPage";
@@ -32,6 +34,36 @@ const InventoryRoutes = (
     <Route path="/inventory/items/new-crafting" element={
       <ProtectedRoute>
         <ItemForm defaultCategory="Crafting" hideTabs />
+      </ProtectedRoute>
+    } />
+
+    <Route path="/inventory/items/new-hide" element={
+      <ProtectedRoute>
+        <ItemForm defaultCategory="Crafting" hideTabs />
+      </ProtectedRoute>
+    } />
+
+    <Route path="/inventory/hides" element={
+      <ProtectedRoute>
+        <Navigate to="/inventory/items?tab=hides" replace />
+      </ProtectedRoute>
+    } />
+
+    <Route path="/inventory/hides/new" element={
+      <ProtectedRoute>
+        <HideForm />
+      </ProtectedRoute>
+    } />
+
+    <Route path="/inventory/hides/:id" element={
+      <ProtectedRoute>
+        <HideDetail />
+      </ProtectedRoute>
+    } />
+
+    <Route path="/inventory/hides/:id/edit" element={
+      <ProtectedRoute>
+        <HideForm />
       </ProtectedRoute>
     } />
     
@@ -97,6 +129,26 @@ export const inventoryRoutes = [
   {
     path: '/inventory/items/new-crafting',
     element: <ItemForm defaultCategory="Crafting" hideTabs />
+  },
+  {
+    path: '/inventory/items/new-hide',
+    element: <ItemForm defaultCategory="Crafting" hideTabs />
+  },
+  {
+    path: '/inventory/hides',
+    element: <Navigate to="/inventory/items?tab=hides" replace />
+  },
+  {
+    path: '/inventory/hides/new',
+    element: <HideForm />
+  },
+  {
+    path: '/inventory/hides/:id',
+    element: <HideDetail />
+  },
+  {
+    path: '/inventory/hides/:id/edit',
+    element: <HideForm />
   },
   {
     path: '/inventory/items/:id/edit',

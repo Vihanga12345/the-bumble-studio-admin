@@ -1,10 +1,11 @@
 -- =====================================================
 -- Item Category Migration: Selling vs Crafting Items
 -- =====================================================
+-- DO NOT RUN - The trigger in Step 5-6 overrides manual is_website_item changes.
+-- Use supabase migrations 20260226120000+ instead. Run RUN_THIS_TO_FIX_WEBSITE_VISIBILITY.sql if needed.
+--
 -- This migration adds support for differentiating between
 -- Selling Items (displayed on website) and Crafting Items (internal use only)
--- 
--- Run this in Supabase SQL Editor
 
 -- Step 1: Add new columns to inventory_items table
 ALTER TABLE inventory_items
@@ -37,34 +38,8 @@ CREATE INDEX IF NOT EXISTS idx_inventory_items_category ON inventory_items(item_
 CREATE INDEX IF NOT EXISTS idx_inventory_items_category_stock ON inventory_items(item_category, current_stock) 
 WHERE item_category = 'Selling' AND current_stock > 0;
 
--- Step 5: Create a function to automatically hide out-of-stock selling items from website
-CREATE OR REPLACE FUNCTION update_website_visibility()
-RETURNS TRIGGER AS $$
-BEGIN
-  -- For Selling items, automatically set is_website_item based on stock
-  IF NEW.item_category = 'Selling' THEN
-    IF NEW.current_stock > 0 THEN
-      NEW.is_website_item := true;
-    ELSE
-      NEW.is_website_item := false;
-    END IF;
-  END IF;
-  
-  -- For Crafting items, always set is_website_item to false
-  IF NEW.item_category = 'Crafting' THEN
-    NEW.is_website_item := false;
-  END IF;
-  
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Step 6: Create trigger to automatically update website visibility
-DROP TRIGGER IF EXISTS trigger_update_website_visibility ON inventory_items;
-CREATE TRIGGER trigger_update_website_visibility
-  BEFORE INSERT OR UPDATE ON inventory_items
-  FOR EACH ROW
-  EXECUTE FUNCTION update_website_visibility();
+-- Step 5-6: REMOVED - Do NOT create update_website_visibility trigger
+-- Manual control of is_website_item via the admin switch. See migrations 20260226120000+
 
 -- Step 7: Verify changes
 SELECT 

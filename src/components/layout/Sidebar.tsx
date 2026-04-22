@@ -15,7 +15,7 @@ import {
   Truck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-const logo = '/The Bumble Studio LOGO.png';
+const logo = '/bumble-logo.png';
 
 interface SidebarProps {
   isCollapsed?: boolean;
@@ -133,17 +133,17 @@ const Sidebar: React.FC<SidebarProps> = ({
       
       {/* Logo */}
       <div className={cn(
-        "flex items-center h-16 px-4 border-b border-stitching/30",
+        "flex items-center h-16 px-4 border-b border-bumble/30",
         collapsed ? "justify-center" : "justify-between"
       )}>
         <div className={cn("flex items-center gap-3", collapsed ? "justify-center" : "")}>
           <img
             src={logo}
-            alt="The Bumble Studio Logo"
-            className="h-10 w-auto max-w-[140px] object-contain"
+            alt="Bumble Studio Logo"
+            className="h-12 w-auto max-w-[50px] object-contain"
           />
           {!collapsed && (
-            <span className="font-playfair text-xl font-semibold tracking-tight text-gold animate-fade-in">The Bumble Studio</span>
+            <span className="font-playfair text-xl font-semibold tracking-tight text-bumble-light animate-fade-in">Admin</span>
           )}
         </div>
         
@@ -151,7 +151,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <button 
           onClick={handleToggleCollapse}
           className={cn(
-            "p-1.5 rounded-md hover:bg-leather-medium transition-all duration-300 ease-in-out text-gold",
+            "p-1.5 rounded-md hover:bg-card transition-all duration-300 ease-in-out text-bumble-light hover:text-bumble",
             collapsed ? "rotate-180" : ""
           )}
         >
@@ -174,10 +174,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                   to={item.path}
                   className={cn(
                     "flex items-center gap-3 px-3 py-2 rounded-md transition-all duration-200",
-                    "hover:bg-leather-medium group",
+                    "hover:bg-card group",
                     isActive ? 
-                      "bg-gradient-gold text-leather-dark font-medium shadow-gold-glow" : 
-                      "text-foreground hover:text-gold",
+                      "bg-gradient-green text-foreground font-medium shadow-green-glow" : 
+                      "text-foreground/80 hover:text-bumble-light",
                     collapsed ? "justify-center" : ""
                   )}
                 >
@@ -196,12 +196,12 @@ const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       {/* Sign Out Button */}
-      <div className="border-t border-stitching/30 p-2">
+      <div className="border-t border-bumble/30 p-2">
         <Button
           variant="ghost"
           onClick={handleSignOut}
           className={cn(
-            "w-full text-foreground hover:text-gold hover:bg-leather-medium",
+            "w-full text-foreground/80 hover:text-bumble-light hover:bg-card",
             collapsed ? "justify-center px-2" : "justify-start"
           )}
         >

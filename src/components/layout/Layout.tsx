@@ -40,9 +40,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         
         {/* Mobile TopBar */}
         {isAuthenticated && (
-          <div className="block md:hidden bg-card border-b border-border px-4 py-3">
+          <div className="block md:hidden bg-card/95 backdrop-blur border-b border-border px-3 py-2 sticky top-0 z-40">
             <div className="flex items-center justify-between">
-              <h1 className="font-playfair text-xl font-semibold text-gold">The Bumble Studio</h1>
+              <h1 className="font-playfair text-base font-semibold text-bumble-light truncate">Admin</h1>
               <div className="flex items-center space-x-2">
                 {/* You can add mobile-specific actions here */}
               </div>
@@ -55,7 +55,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           // Desktop padding
           "md:px-6 md:py-6",
           // Mobile padding with bottom nav space
-          "px-4 py-4 pb-20",
+          "px-3 py-4 pb-24 sm:px-4",
           !isAuthenticated ? "pt-0" : "",
           "animate-fade-in"
         )}>

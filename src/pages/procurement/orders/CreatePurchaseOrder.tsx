@@ -9,19 +9,25 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Trash2, Plus, ArrowLeft, FileText, Package } from 'lucide-react';
-import { PurchaseItem } from '@/types';
+import { Trash2, Plus, ArrowLeft, FileText, Package, ImageIcon } from 'lucide-react';
+import { PurchaseItem, PurchaseOrderHideLink } from '@/types';
 import { toast } from 'sonner';
 import { useSuppliers } from '@/hooks/useSuppliers';
 import { usePurchaseOrders } from '@/hooks/usePurchaseOrders';
 import { useInventory } from '@/hooks/useInventory';
+import { useHides } from '@/hooks/useHides';
 import { supabase } from '@/integrations/supabase/client';
+import { uploadMultipleImages, deleteImage } from '@/lib/uploadUtils';
+
+type ItemTypeOption = 'hides' | 'crafting';
 
 interface PurchaseItemWithImage extends PurchaseItem {
   imageUrl?: string;
   variantId?: string;
   variantName?: string;
   inventoryItemId?: string;
+  itemType?: ItemTypeOption;
+  hideId?: string;
 }
 
 const CreatePurchaseOrder = () => {
@@ -31,6 +37,7 @@ const CreatePurchaseOrder = () => {
   const { suppliers } = useSuppliers();
   const { addPurchaseOrder, updatePurchaseOrder, getPurchaseOrderById } = usePurchaseOrders();
   const { items: inventoryItems } = useInventory();
+  const { hides } = useHides();
   const hasLoadedOrder = useRef(false);
   
   const [selectedSupplier, setSelectedSupplier] = useState<string>('');
@@ -42,10 +49,15 @@ const CreatePurchaseOrder = () => {
       quantity: 1,
       unitCost: 0,
       totalCost: 0,
-      imageUrl: ''
+      imageUrl: '',
+      itemType: 'crafting'
     }
   ]);
   const [variantsByProduct, setVariantsByProduct] = useState<Record<string, any[]>>({});
+  const [poImages, setPoImages] = useState<string[]>([]);
+  const [poImageFiles, setPoImageFiles] = useState<File[]>([]);
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
+  const poImageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     console.log('Current suppliers in form:', suppliers);
@@ -76,12 +88,28 @@ const CreatePurchaseOrder = () => {
           variantName: (item as any).variantName
         });
         });
-        setItems(mappedItems);
+        const hideRows: PurchaseItemWithImage[] = (existingOrder.linkedHides || []).map((link, index) => {
+          const hide = hides.find(h => h.id === link.hideId);
+          return {
+            id: `hide-${index}`,
+            name: hide?.hideName || 'Unknown Hide',
+            quantity: link.quantity,
+            unitCost: link.unitPrice || 0,
+            totalCost: (link.quantity || 1) * (link.unitPrice || 0),
+            imageUrl: hide?.imageUrls?.[0] || '',
+            itemType: 'hides' as ItemTypeOption,
+            hideId: link.hideId
+          };
+        });
+        const craftingRows = mappedItems.map(m => ({ ...m, itemType: 'crafting' as ItemTypeOption }));
+        setItems([...craftingRows, ...hideRows]);
         mappedItems.forEach(item => {
           if (item.inventoryItemId) {
             loadVariants(item.inventoryItemId);
           }
         });
+        const { data: poImagesData } = await (supabase as any).from('purchase_order_images').select('image_url').eq('purchase_order_id', existingOrder.id).order('sort_order', { ascending: true });
+        setPoImages((poImagesData || []).map((r: any) => r.image_url));
         return;
       }
 
@@ -126,21 +154,41 @@ const CreatePurchaseOrder = () => {
           };
         });
 
-        if (mappedItems.length > 0) {
-          setItems(mappedItems);
-          mappedItems.forEach(item => {
-            if (item.inventoryItemId) {
-              loadVariants(item.inventoryItemId);
-            }
-          });
-        }
+        const { data: hideLinkRows } = await (supabase as any)
+          .from('purchase_order_hides')
+          .select('*')
+          .eq('purchase_order_id', id);
+        const hideRowsFromDb: PurchaseItemWithImage[] = (hideLinkRows || []).map((row: any, index: number) => {
+          const hide = hides.find(h => h.id === row.hide_id);
+          return {
+            id: row.id || `db-hide-${index}`,
+            name: hide?.hideName || 'Unknown Hide',
+            quantity: Number(row.quantity || 1),
+            unitCost: Number(row.unit_price || 0),
+            totalCost: Number(row.quantity || 1) * Number(row.unit_price || 0),
+            imageUrl: hide?.imageUrls?.[0] || '',
+            itemType: 'hides' as ItemTypeOption,
+            hideId: row.hide_id
+          };
+        });
+        const craftingRows = mappedItems.map(m => ({ ...m, itemType: 'crafting' as ItemTypeOption }));
+        const allRows = [...craftingRows, ...hideRowsFromDb];
+        setItems(allRows.length > 0 ? allRows : [{ id: '1', name: '', quantity: 1, unitCost: 0, totalCost: 0, imageUrl: '', itemType: 'crafting' }]);
+        craftingRows.forEach(item => {
+          if (item.inventoryItemId) {
+            loadVariants(item.inventoryItemId);
+          }
+        });
+
+        const { data: poImagesData } = await (supabase as any).from('purchase_order_images').select('image_url').eq('purchase_order_id', id).order('sort_order', { ascending: true });
+        setPoImages((poImagesData || []).map((r: any) => r.image_url));
       } catch (error) {
         console.error('Error loading purchase order for edit:', error);
       }
     };
 
     loadExistingOrder();
-  }, [id, isEditMode, getPurchaseOrderById, inventoryItems]);
+  }, [id, isEditMode, getPurchaseOrderById, inventoryItems, hides]);
 
   const loadVariants = async (parentId: string) => {
     try {
@@ -161,6 +209,9 @@ const CreatePurchaseOrder = () => {
     }
   };
 
+  const supplierMatchedHides = hides.filter((hide) => !selectedSupplier || hide.supplierId === selectedSupplier);
+  const craftingItems = inventoryItems.filter((item) => item.itemCategory === 'Crafting' && item.isActive);
+
   const handleAddItem = () => {
     setItems([
       ...items,
@@ -170,7 +221,8 @@ const CreatePurchaseOrder = () => {
         quantity: 1,
         unitCost: 0,
         totalCost: 0,
-        imageUrl: ''
+        imageUrl: '',
+        itemType: 'crafting'
       }
     ]);
   };
@@ -183,13 +235,23 @@ const CreatePurchaseOrder = () => {
     }
   };
 
-  const handleItemChange = (id: string, field: keyof PurchaseItem, value: string | number) => {
+  const handleItemChange = (id: string, field: keyof PurchaseItemWithImage, value: string | number) => {
     setItems(
       items.map(item => {
         if (item.id === id) {
           const updatedItem = { ...item, [field]: value };
           
-          // Recalculate total cost if quantity or unit cost changes
+          if (field === 'itemType') {
+            updatedItem.inventoryItemId = undefined;
+            updatedItem.hideId = undefined;
+            updatedItem.name = '';
+            updatedItem.unitCost = 0;
+            updatedItem.totalCost = 0;
+            updatedItem.imageUrl = '';
+            updatedItem.variantId = undefined;
+            updatedItem.variantName = undefined;
+          }
+          
           if (field === 'quantity' || field === 'unitCost') {
             const quantity = field === 'quantity' ? Number(value) : item.quantity;
             const unitCost = field === 'unitCost' ? Number(value) : item.unitCost;
@@ -203,17 +265,41 @@ const CreatePurchaseOrder = () => {
     );
   };
 
-  const handleItemSelection = (id: string, inventoryItemId: string) => {
-    const selectedItem = inventoryItems.find(item => item.id === inventoryItemId);
-    
-    if (selectedItem) {
-      setItems(
-        items.map(item => {
+  const handleItemSelection = (id: string, selectedId: string) => {
+    const row = items.find(i => i.id === id);
+    if (!row) return;
+    const itemType = row.itemType || 'crafting';
+
+    if (itemType === 'hides') {
+      const selectedHide = supplierMatchedHides.find(h => h.id === selectedId);
+      if (selectedHide) {
+        setItems(items.map(item => {
           if (item.id === id) {
-            loadVariants(inventoryItemId);
             return {
               ...item,
-              inventoryItemId,
+              hideId: selectedHide.id,
+              name: selectedHide.hideName,
+              unitCost: selectedHide.price,
+              totalCost: selectedHide.price * item.quantity,
+              imageUrl: selectedHide.imageUrls?.[0] || '',
+              inventoryItemId: undefined,
+              variantId: undefined,
+              variantName: undefined
+            };
+          }
+          return item;
+        }));
+      }
+    } else {
+      const selectedItem = craftingItems.find(c => c.id === selectedId);
+      if (selectedItem) {
+        setItems(items.map(item => {
+          if (item.id === id) {
+            loadVariants(selectedId);
+            return {
+              ...item,
+              inventoryItemId: selectedId,
+              hideId: undefined,
               name: selectedItem.name,
               unitCost: selectedItem.purchaseCost,
               totalCost: selectedItem.purchaseCost * item.quantity,
@@ -223,8 +309,8 @@ const CreatePurchaseOrder = () => {
             };
           }
           return item;
-        })
-      );
+        }));
+      }
     }
   };
 
@@ -266,16 +352,60 @@ const CreatePurchaseOrder = () => {
       return;
     }
 
-    try {
-      console.log(isEditMode ? 'Updating PO with supplier ID:' : 'Creating PO with supplier ID:', selectedSupplier);
-      console.log('Items:', items);
+    const craftingItemsForSave = items
+      .filter((i): i is PurchaseItemWithImage & { inventoryItemId: string } => (i.itemType || 'crafting') === 'crafting' && !!i.inventoryItemId)
+      .map(i => ({
+        id: i.id,
+        name: i.name,
+        quantity: i.quantity,
+        unitCost: i.unitCost,
+        totalCost: i.totalCost,
+        inventoryItemId: i.inventoryItemId,
+        variantId: i.variantId,
+        variantName: i.variantName
+      }));
+    const linkedHidesForSave: PurchaseOrderHideLink[] = items
+      .filter((i): i is PurchaseItemWithImage & { hideId: string } => i.itemType === 'hides' && !!i.hideId)
+      .map(i => ({
+        hideId: i.hideId,
+        quantity: i.quantity,
+        unitPrice: i.unitCost,
+        notes: ''
+      }));
 
+    let allPoImageUrls = [...poImages];
+    if (poImageFiles.length > 0) {
+      setIsUploadingImages(true);
+      try {
+        const uploaded = await uploadMultipleImages(poImageFiles, 'purchase-orders');
+        allPoImageUrls = [...poImages, ...uploaded].slice(0, 5);
+      } catch (e) {
+        toast.error('Failed to upload images');
+        setIsUploadingImages(false);
+        return;
+      }
+      setIsUploadingImages(false);
+    }
+
+    try {
       if (isEditMode && id) {
-        await updatePurchaseOrder(id, selectedSupplier, items, notes);
+        await updatePurchaseOrder(
+          id,
+          selectedSupplier,
+          craftingItemsForSave,
+          notes,
+          linkedHidesForSave,
+          allPoImageUrls
+        );
         toast.success('Purchase Order updated successfully');
       } else {
-        const newPO = await addPurchaseOrder(selectedSupplier, items, notes);
-        console.log('Purchase order created:', newPO);
+        await addPurchaseOrder(
+          selectedSupplier,
+          craftingItemsForSave,
+          notes,
+          linkedHidesForSave,
+          allPoImageUrls
+        );
         toast.success('Purchase Order created successfully');
       }
       navigate('/procurement/orders');
@@ -321,6 +451,7 @@ const CreatePurchaseOrder = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Image</TableHead>
+                      <TableHead>Item Type</TableHead>
                       <TableHead>Item Name</TableHead>
                       <TableHead>Variant</TableHead>
                       <TableHead>Quantity</TableHead>
@@ -330,7 +461,10 @@ const CreatePurchaseOrder = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {items.map((item) => (
+                    {items.map((item) => {
+                      const itemType = item.itemType || 'crafting';
+                      const selectedId = itemType === 'hides' ? item.hideId : item.inventoryItemId;
+                      return (
                       <TableRow key={item.id}>
                         <TableCell>
                           {item.imageUrl ? (
@@ -350,50 +484,100 @@ const CreatePurchaseOrder = () => {
                         </TableCell>
                         <TableCell>
                           <Select
-                            value={item.inventoryItemId || ''}
-                            onValueChange={(inventoryItemId) => handleItemSelection(item.id, inventoryItemId)}
+                            value={itemType}
+                            onValueChange={(v) => handleItemChange(item.id, 'itemType', v)}
                           >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select an inventory item" />
+                            <SelectTrigger className="min-w-[140px]">
+                              <SelectValue placeholder="Item type" />
                             </SelectTrigger>
                             <SelectContent>
-                              {inventoryItems.length > 0 ? (
-                                inventoryItems.map((inventoryItem) => (
-                                  <SelectItem key={inventoryItem.id} value={inventoryItem.id}>
-                                    {inventoryItem.name}
+                              <SelectItem value="hides">Hides</SelectItem>
+                              <SelectItem value="crafting">Crafting Materials</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            value={selectedId || ''}
+                            onValueChange={(id) => handleItemSelection(item.id, id)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder={itemType === 'hides' ? 'Select hide' : 'Select crafting item'} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {itemType === 'hides' ? (
+                                supplierMatchedHides.length > 0 ? (
+                                  supplierMatchedHides.map((hide) => (
+                                    <SelectItem key={hide.id} value={hide.id}>
+                                      <div className="flex items-center gap-2">
+                                        {hide.imageUrls?.[0] ? (
+                                          <img src={hide.imageUrls[0]} alt="" className="w-8 h-8 object-cover rounded flex-shrink-0" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                        ) : (
+                                          <div className="w-8 h-8 bg-muted rounded flex items-center justify-center flex-shrink-0">
+                                            <Package className="h-4 w-4 text-muted-foreground" />
+                                          </div>
+                                        )}
+                                        {hide.hideName}
+                                      </div>
+                                    </SelectItem>
+                                  ))
+                                ) : (
+                                  <SelectItem value="no-hides" disabled>
+                                    No hides available
                                   </SelectItem>
-                                ))
+                                )
                               ) : (
-                                <SelectItem value="no-items" disabled>
-                                  No inventory items available
-                                </SelectItem>
+                                craftingItems.length > 0 ? (
+                                  craftingItems.map((inv) => (
+                                    <SelectItem key={inv.id} value={inv.id}>
+                                      <div className="flex items-center gap-2">
+                                        {inv.imageUrl ? (
+                                          <img src={inv.imageUrl} alt="" className="w-8 h-8 object-cover rounded flex-shrink-0" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                        ) : (
+                                          <div className="w-8 h-8 bg-muted rounded flex items-center justify-center flex-shrink-0">
+                                            <Package className="h-4 w-4 text-muted-foreground" />
+                                          </div>
+                                        )}
+                                        {inv.name}
+                                      </div>
+                                    </SelectItem>
+                                  ))
+                                ) : (
+                                  <SelectItem value="no-items" disabled>
+                                    No crafting items available
+                                  </SelectItem>
+                                )
                               )}
                             </SelectContent>
                           </Select>
                         </TableCell>
                         <TableCell>
-                          {(() => {
-                            const variants = item.inventoryItemId ? variantsByProduct[item.inventoryItemId] || [] : [];
-                            return variants.length > 0 ? (
-                              <Select 
-                                value={item.variantId || ''} 
-                                onValueChange={(variantId) => handleVariantSelection(item.id, variantId, item.inventoryItemId!)}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select variant" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {variants.map((variant) => (
-                                    <SelectItem key={variant.id} value={variant.id}>
-                                      {variant.variant_name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <span className="text-sm text-muted-foreground">No variants</span>
-                            );
-                          })()}
+                          {itemType === 'crafting' && item.inventoryItemId ? (
+                            (() => {
+                              const variants = variantsByProduct[item.inventoryItemId!] || [];
+                              return variants.length > 0 ? (
+                                <Select 
+                                  value={item.variantId || ''} 
+                                  onValueChange={(variantId) => handleVariantSelection(item.id, variantId, item.inventoryItemId!)}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select variant" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {variants.map((variant) => (
+                                      <SelectItem key={variant.id} value={variant.id}>
+                                        {variant.variant_name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <span className="text-sm text-muted-foreground">—</span>
+                              );
+                            })()
+                          ) : (
+                            <span className="text-sm text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Input
@@ -429,7 +613,8 @@ const CreatePurchaseOrder = () => {
                           </Button>
                         </TableCell>
                       </TableRow>
-                    ))}
+                    );
+                    })}
                   </TableBody>
                 </Table>
                 <div className="mt-4">
@@ -501,6 +686,70 @@ const CreatePurchaseOrder = () => {
                         Add New Supplier
                       </Button>
                     </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>PO Images (up to 5)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap gap-2">
+                      {poImages.map((url, idx) => (
+                        <div key={idx} className="relative group">
+                          <img src={url} alt={`PO ${idx + 1}`} className="w-16 h-16 object-cover rounded border" onError={(e) => { e.currentTarget.src = '/placeholder.svg?height=64&width=64'; }} />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            className="absolute -top-1 -right-1 h-5 w-5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => setPoImages(prev => prev.filter((_, i) => i !== idx))}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                      {poImageFiles.map((f, idx) => (
+                        <div key={`file-${idx}`} className="relative group">
+                          <img src={URL.createObjectURL(f)} alt={`New ${idx + 1}`} className="w-16 h-16 object-cover rounded border" />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            className="absolute -top-1 -right-1 h-5 w-5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => setPoImageFiles(prev => prev.filter((_, i) => i !== idx))}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                      {(poImages.length + poImageFiles.length) < 5 && (
+                        <button
+                          type="button"
+                          onClick={() => poImageInputRef.current?.click()}
+                          className="w-16 h-16 border-2 border-dashed rounded flex items-center justify-center hover:bg-muted/50 transition-colors"
+                        >
+                          <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      ref={poImageInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        const remaining = 5 - poImages.length - poImageFiles.length;
+                        const toAdd = files.slice(0, remaining);
+                        setPoImageFiles(prev => [...prev, ...toAdd].slice(0, remaining));
+                        e.target.value = '';
+                      }}
+                    />
+                    {isUploadingImages && <p className="text-sm text-muted-foreground">Uploading images...</p>}
                   </div>
                 </CardContent>
               </Card>

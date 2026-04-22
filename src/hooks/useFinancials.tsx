@@ -21,17 +21,59 @@ export const useFinancials = () => {
         throw error;
       }
 
-      const formattedTransactions: Transaction[] = data.map(transaction => ({
-        id: transaction.id,
-        type: transaction.type as TransactionType,
-        amount: transaction.amount,
-        category: transaction.category,
-        description: transaction.description || '',
-        date: new Date(transaction.date),
-        paymentMethod: transaction.payment_method as PaymentMethod,
-        referenceNumber: transaction.reference_number || '',
-        createdAt: new Date(transaction.created_at)
-      }));
+      const sourceOrderIds = [...new Set((data || []).map((t: any) => t.source_order_id).filter(Boolean))];
+      let orderImagesMap: Record<string, string[]> = {};
+      if (sourceOrderIds.length > 0) {
+        const { data: orderImagesData } = await supabase
+          .from('order_images')
+          .select('order_id, image_url')
+          .in('order_id', sourceOrderIds)
+          .order('sort_order', { ascending: true });
+        (orderImagesData || []).forEach((row: any) => {
+          if (!orderImagesMap[row.order_id]) orderImagesMap[row.order_id] = [];
+          orderImagesMap[row.order_id].push(row.image_url);
+        });
+      }
+
+      const poRefs = [...new Set((data || []).filter((t: any) => t.category === 'purchases' && t.reference_number).map((t: any) => t.reference_number))];
+      let poImagesMap: Record<string, string[]> = {};
+      if (poRefs.length > 0) {
+        try {
+          const { data: poData } = await supabase.from('purchase_orders').select('id, order_number').in('order_number', poRefs);
+          const poIds = (poData || []).map((p: any) => p.id);
+          if (poIds.length > 0) {
+            const { data: poImagesData } = await (supabase as any).from('purchase_order_images').select('purchase_order_id, image_url').in('purchase_order_id', poIds).order('sort_order', { ascending: true });
+            const poById = new Map((poData || []).map((p: any) => [p.id, p]));
+            (poImagesData || []).forEach((row: any) => {
+              const po = poById.get(row.purchase_order_id);
+              if (po?.order_number) {
+                if (!poImagesMap[po.order_number]) poImagesMap[po.order_number] = [];
+                poImagesMap[po.order_number].push(row.image_url);
+              }
+            });
+          }
+        } catch (_) {}
+      }
+
+      const formattedTransactions: Transaction[] = (data || []).map((transaction: any) => {
+        const billImages = transaction.bill_images && Array.isArray(transaction.bill_images) ? transaction.bill_images : null;
+        const orderImages = transaction.source_order_id ? (orderImagesMap[transaction.source_order_id] || []) : [];
+        const poImages = transaction.category === 'purchases' && transaction.reference_number ? (poImagesMap[transaction.reference_number] || []) : [];
+        const allImages = [...(billImages || []), ...orderImages, ...poImages];
+        return {
+          id: transaction.id,
+          type: transaction.type as TransactionType,
+          amount: transaction.amount,
+          category: transaction.category,
+          description: transaction.description || '',
+          date: new Date(transaction.date),
+          paymentMethod: transaction.payment_method as PaymentMethod,
+          referenceNumber: transaction.reference_number || '',
+          createdAt: new Date(transaction.created_at),
+          bill_images: allImages.length > 0 ? allImages : null,
+          source_order_id: transaction.source_order_id || null
+        };
+      });
 
       setTransactions(formattedTransactions);
       console.log('Transactions loaded from database:', formattedTransactions);
@@ -86,6 +128,11 @@ export const useFinancials = () => {
           payment_method: paymentMethod,
           reference_number: referenceNumber
         };
+      }
+
+      const amt = transactionData.amount;
+      if (amt == null || amt <= 0) {
+        throw new Error('Amount must be greater than zero');
       }
 
       const { data, error } = await supabase

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import ResponsiveTable from '@/components/ui/responsive-table';
-import { ShoppingCart, Plus, Search, FileText, ArrowLeft, Eye } from 'lucide-react';
+import { ShoppingCart, Plus, Search, FileText, ArrowLeft, Eye, Package } from 'lucide-react';
 import { usePurchaseOrders } from '@/hooks/usePurchaseOrders';
 import { toast } from 'sonner';
 
@@ -39,6 +39,20 @@ const PurchaseOrderList = () => {
   };
 
   const columns = [
+    {
+      key: 'image',
+      label: 'Image',
+      render: (_: any, row: any) => {
+        const img = (row.poImages && row.poImages[0]) || (row.items?.[0] as any)?.imageUrl;
+        return img ? (
+          <img src={img} alt="" className="w-10 h-10 object-cover rounded" onError={(e) => { e.currentTarget.src = '/placeholder.svg?height=40&width=40'; }} />
+        ) : (
+          <div className="w-10 h-10 bg-muted rounded flex items-center justify-center">
+            <Package className="h-5 w-5 text-muted-foreground" />
+          </div>
+        );
+      }
+    },
     {
       key: 'orderNumber',
       label: 'Order Number',

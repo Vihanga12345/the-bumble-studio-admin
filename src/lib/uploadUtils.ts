@@ -120,24 +120,14 @@ export async function deleteMultipleImages(imageUrls: string[]): Promise<boolean
 /**
  * Validates if a file is a valid image
  * @param file - The file to validate
- * @param maxSizeMB - Maximum file size in MB (default: 5)
+ * @param maxSizeMB - Deprecated, kept for backward compatibility
  * @returns Object with isValid boolean and error message if invalid
  */
 export function validateImageFile(file: File, maxSizeMB: number = 5): { isValid: boolean; error?: string } {
-  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
-  
-  if (!allowedTypes.includes(file.type)) {
+  if (!file.type || !file.type.startsWith('image/')) {
     return {
       isValid: false,
-      error: 'Invalid file type. Only JPEG, PNG, WebP, and GIF images are allowed.'
-    };
-  }
-
-  const maxSizeBytes = maxSizeMB * 1024 * 1024;
-  if (file.size > maxSizeBytes) {
-    return {
-      isValid: false,
-      error: `File size exceeds ${maxSizeMB}MB limit.`
+      error: 'Invalid file type. Please upload a valid image file.'
     };
   }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { PurchaseOrder, PurchaseOrderStatus, Supplier, PurchaseItem } from '@/types';
+import { PurchaseOrder, PurchaseOrderStatus, Supplier, PurchaseItem, PurchaseOrderHideLink } from '@/types';
 import { supabase } from '@/integrations/supabase/client';
 import { useSuppliers } from './useSuppliers';
 import { useERPAuth } from '@/contexts/ERPAuthContext';
@@ -87,14 +87,27 @@ export const usePurchaseOrders = () => {
         console.error('Error in items fetch:', fetchError);
       }
 
-      // Load inventory items for item_id mapping
+      const { data: hideLinksData } = await (supabase as any)
+        .from('purchase_order_hides')
+        .select('purchase_order_id, hide_id, quantity, unit_price, notes');
+
+      let poImagesMap: Record<string, string[]> = {};
+      try {
+        const { data: poImagesData } = await (supabase as any).from('purchase_order_images').select('purchase_order_id, image_url, sort_order').order('sort_order', { ascending: true });
+        (poImagesData || []).forEach((r: any) => {
+          if (!poImagesMap[r.purchase_order_id]) poImagesMap[r.purchase_order_id] = [];
+          poImagesMap[r.purchase_order_id].push(r.image_url);
+        });
+      } catch (_) {}
+
+      // Load inventory items for item_id mapping (include image_url)
       const itemIds = Array.from(new Set(itemsData.map(item => item.item_id).filter(Boolean)));
       let inventoryMap: Record<string, any> = {};
       let inventoryNameMap: Record<string, any> = {};
       if (itemIds.length > 0) {
         const { data: inventoryItems } = await supabase
           .from('inventory_items')
-          .select('id, name, sku, unit_of_measure')
+          .select('id, name, sku, unit_of_measure, image_url')
           .in('id', itemIds);
         (inventoryItems || []).forEach(item => {
           inventoryMap[item.id] = item;
@@ -122,7 +135,17 @@ export const usePurchaseOrders = () => {
             unitCost: item.unit_cost,
             totalCost: item.total_cost,
             receivedQuantity: item.received_quantity || 0,
-            itemId: item.item_id || inventoryNameMap[item.name]?.id // Include the inventory item reference
+            itemId: item.item_id || inventoryNameMap[item.name]?.id,
+            imageUrl: inventoryMap[item.item_id]?.image_url || inventoryNameMap[item.name]?.image_url
+          }));
+
+        const hideLinks: PurchaseOrderHideLink[] = (hideLinksData || [])
+          .filter((link: any) => link.purchase_order_id === order.id)
+          .map((link: any) => ({
+            hideId: link.hide_id,
+            quantity: Number(link.quantity || 0),
+            unitPrice: Number(link.unit_price || 0),
+            notes: link.notes || ''
           }));
 
         // Handle case where supplier might be null
@@ -147,12 +170,14 @@ export const usePurchaseOrders = () => {
           orderNumber: order.order_number,
           supplier,
           items: orderItems,
+          linkedHides: hideLinks,
           totalAmount: order.total_amount,
           status: order.status as PurchaseOrderStatus,
           createdAt: new Date(order.created_at),
           updatedAt: new Date(order.updated_at),
           expectedDeliveryDate: order.expected_delivery_date ? new Date(order.expected_delivery_date) : undefined,
-          notes: order.notes || ''
+          notes: order.notes || '',
+          poImages: poImagesMap[order.id] || []
         };
       });
 
@@ -170,7 +195,13 @@ export const usePurchaseOrders = () => {
     fetchPurchaseOrders();
   }, []);
 
-  const addPurchaseOrder = async (supplierId: string, items: PurchaseItem[], notes?: string) => {
+  const addPurchaseOrder = async (
+    supplierId: string,
+    items: PurchaseItem[],
+    notes?: string,
+    linkedHides: PurchaseOrderHideLink[] = [],
+    poImageUrls: string[] = []
+  ) => {
     setIsLoading(true);
     
     try {
@@ -180,7 +211,9 @@ export const usePurchaseOrders = () => {
         throw new Error('Supplier not found');
       }
       
-      const totalAmount = items.reduce((sum, item) => sum + item.totalCost, 0);
+      const itemsTotal = items.reduce((sum, item) => sum + item.totalCost, 0);
+      const hidesTotal = linkedHides.reduce((sum, link) => sum + (link.quantity * (link.unitPrice || 0)), 0);
+      const totalAmount = itemsTotal + hidesTotal;
       const orderNumber = `PO-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
       
       // Get business_id from current user, default to a proper UUID if not available
@@ -283,6 +316,31 @@ export const usePurchaseOrders = () => {
         })
       );
 
+      if (poImageUrls.length > 0) {
+        await (supabase as any).from('purchase_order_images').insert(
+          poImageUrls.map((url, i) => ({
+            purchase_order_id: orderData.id,
+            image_url: url,
+            sort_order: i
+          }))
+        );
+      }
+
+      if (linkedHides.length > 0) {
+        const { error: hideLinkError } = await (supabase as any).from('purchase_order_hides').insert(
+          linkedHides.map((link) => ({
+            purchase_order_id: orderData.id,
+            hide_id: link.hideId,
+            quantity: link.quantity,
+            unit_price: link.unitPrice,
+            notes: link.notes || null
+          }))
+        );
+        if (hideLinkError) {
+          throw hideLinkError;
+        }
+      }
+
       // Record inventory transactions for purchase order
       for (const item of items) {
         let inventoryItemId = (item as any).inventoryItemId;
@@ -307,36 +365,39 @@ export const usePurchaseOrders = () => {
         }
       }
 
-      // Record financial transaction for purchase
-      const { data: existingTransaction } = await supabase
-        .from('financial_transactions')
-        .select('id')
-        .eq('reference_number', orderNumber)
-        .eq('category', 'purchases')
-        .eq('type', 'expense')
-        .limit(1)
-        .maybeSingle();
-
-      const financialPayload = {
-        amount: totalAmount,
-        category: 'purchases',
-        type: 'expense',
-        date: new Date().toISOString(),
-        description: `Purchase Order ${orderNumber}`,
-        payment_method: 'manual',
-        reference_number: orderNumber,
-        business_id: businessId
-      };
-
-      // Only create/update financial transaction for purchase orders on creation
-      // (Purchase orders create transactions immediately, unlike sales orders which wait for delivery)
-      if (existingTransaction?.id) {
-        await supabase
+      // Record financial transaction for purchase only when amount > 0
+      if (totalAmount > 0) {
+        const { data: existingTransaction } = await supabase
           .from('financial_transactions')
-          .update(financialPayload)
-          .eq('id', existingTransaction.id);
-      } else {
-        await supabase.from('financial_transactions').insert(financialPayload);
+          .select('id')
+          .eq('reference_number', orderNumber)
+          .eq('category', 'purchases')
+          .eq('type', 'expense')
+          .limit(1)
+          .maybeSingle();
+
+        const financialPayload: Record<string, unknown> = {
+          amount: totalAmount,
+          category: 'purchases',
+          type: 'expense',
+          date: new Date().toISOString(),
+          description: `Purchase Order ${orderNumber}`,
+          payment_method: 'manual',
+          reference_number: orderNumber,
+          business_id: businessId
+        };
+        if (poImageUrls.length > 0) {
+          financialPayload.bill_images = poImageUrls;
+        }
+
+        if (existingTransaction?.id) {
+          await supabase
+            .from('financial_transactions')
+            .update(financialPayload)
+            .eq('id', existingTransaction.id);
+        } else {
+          await supabase.from('financial_transactions').insert(financialPayload);
+        }
       }
 
       const newPO: PurchaseOrder = {
@@ -344,6 +405,7 @@ export const usePurchaseOrders = () => {
         orderNumber: orderData.order_number,
         supplier,
         items: orderItems,
+        linkedHides,
         totalAmount: orderData.total_amount,
         status: orderData.status as PurchaseOrderStatus,
         createdAt: new Date(orderData.created_at),
@@ -378,6 +440,16 @@ export const usePurchaseOrders = () => {
       }
 
       if (status === 'cancelled') {
+        const { data: poData } = await supabase.from('purchase_orders').select('order_number').eq('id', id).single();
+        const orderNumber = poData?.order_number;
+        if (orderNumber) {
+          await supabase
+            .from('financial_transactions')
+            .delete()
+            .eq('reference_number', orderNumber)
+            .eq('category', 'purchases');
+        }
+
         const { data: itemsData, error: itemsError } = await supabase
           .from('purchase_order_items')
           .select('*')
@@ -431,7 +503,14 @@ export const usePurchaseOrders = () => {
     }
   };
 
-  const updatePurchaseOrder = async (id: string, supplierId: string, items: PurchaseItem[], notes?: string) => {
+  const updatePurchaseOrder = async (
+    id: string,
+    supplierId: string,
+    items: PurchaseItem[],
+    notes?: string,
+    linkedHides: PurchaseOrderHideLink[] = [],
+    poImageUrls: string[] = []
+  ) => {
     setIsLoading(true);
     try {
       const supplier = suppliers.find(s => s.id === supplierId);
@@ -439,7 +518,9 @@ export const usePurchaseOrders = () => {
         throw new Error('Supplier not found');
       }
 
-      const totalAmount = items.reduce((sum, item) => sum + item.totalCost, 0);
+      const itemsTotal = items.reduce((sum, item) => sum + item.totalCost, 0);
+      const hidesTotal = linkedHides.reduce((sum, link) => sum + (link.quantity * (link.unitPrice || 0)), 0);
+      const totalAmount = itemsTotal + hidesTotal;
 
       const { data: existingItems, error: existingItemsError } = await supabase
         .from('purchase_order_items')
@@ -480,6 +561,33 @@ export const usePurchaseOrders = () => {
 
       if (deleteError) {
         throw deleteError;
+      }
+
+      const { error: deleteHideLinksError } = await (supabase as any)
+        .from('purchase_order_hides')
+        .delete()
+        .eq('purchase_order_id', id);
+      if (deleteHideLinksError) {
+        throw deleteHideLinksError;
+      }
+
+      await (supabase as any).from('purchase_order_images').delete().eq('purchase_order_id', id);
+      if (poImageUrls.length > 0) {
+        await (supabase as any).from('purchase_order_images').insert(
+          poImageUrls.map((url, i) => ({
+            purchase_order_id: id,
+            image_url: url,
+            sort_order: i
+          }))
+        );
+      }
+
+      const orderNumber = purchaseOrders.find(po => po.id === id)?.orderNumber;
+      if (orderNumber) {
+        const { data: existingTx } = await supabase.from('financial_transactions').select('id').eq('reference_number', orderNumber).eq('category', 'purchases').maybeSingle();
+        if (existingTx?.id && poImageUrls.length > 0) {
+          await supabase.from('financial_transactions').update({ bill_images: poImageUrls }).eq('id', existingTx.id);
+        }
       }
 
       const orderItems = await Promise.all(
@@ -557,6 +665,21 @@ export const usePurchaseOrders = () => {
         })
       );
 
+      if (linkedHides.length > 0) {
+        const { error: insertHideLinksError } = await (supabase as any).from('purchase_order_hides').insert(
+          linkedHides.map((link) => ({
+            purchase_order_id: id,
+            hide_id: link.hideId,
+            quantity: link.quantity,
+            unit_price: link.unitPrice,
+            notes: link.notes || null
+          }))
+        );
+        if (insertHideLinksError) {
+          throw insertHideLinksError;
+        }
+      }
+
       const newMap = new Map<string, { quantity: number; variantItemId?: string | null }>();
       items.forEach(item => {
         const inventoryItemId = (item as any).inventoryItemId;
@@ -591,6 +714,7 @@ export const usePurchaseOrders = () => {
         orderNumber: purchaseOrders.find(po => po.id === id)?.orderNumber || '',
         supplier,
         items: orderItems,
+        linkedHides,
         totalAmount,
         status: purchaseOrders.find(po => po.id === id)?.status || 'draft',
         createdAt: purchaseOrders.find(po => po.id === id)?.createdAt || new Date(),
@@ -600,7 +724,7 @@ export const usePurchaseOrders = () => {
 
       setPurchaseOrders(prev => prev.map(po => (po.id === id ? updatedPO : po)));
 
-      if (updatedPO.orderNumber) {
+      if (updatedPO.orderNumber && totalAmount > 0) {
         const { data: existingTransaction } = await supabase
           .from('financial_transactions')
           .select('id')

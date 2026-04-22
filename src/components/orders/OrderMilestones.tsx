@@ -9,7 +9,7 @@ import { Upload, X, Image as ImageIcon } from 'lucide-react';
 interface OrderImage {
   id: string;
   image_url: string;
-  image_order: number;
+  sort_order: number;
 }
 
 interface Milestone {
@@ -54,7 +54,7 @@ export default function OrderMilestones({ orderId, orderNumber }: OrderMilestone
         .from('order_images')
         .select('*')
         .eq('order_id', orderId)
-        .order('image_order')
+        .order('sort_order')
         .limit(8);
 
       if (imagesError) throw imagesError;
@@ -125,7 +125,7 @@ export default function OrderMilestones({ orderId, orderNumber }: OrderMilestone
           .insert({
             order_id: orderId,
             image_url: publicUrl,
-            image_order: orderImages.length + i
+            sort_order: orderImages.length + i
           });
 
         if (dbError) throw dbError;
@@ -189,7 +189,7 @@ export default function OrderMilestones({ orderId, orderNumber }: OrderMilestone
       {/* Milestones Checklist */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Crafting Milestones - Order #{orderNumber}</CardTitle>
+          <CardTitle className="text-lg">Hide Milestones - Order #{orderNumber}</CardTitle>
           <p className="text-sm text-muted-foreground">
             Check off each milestone as it's completed
           </p>
@@ -257,7 +257,6 @@ export default function OrderMilestones({ orderId, orderNumber }: OrderMilestone
                 id="image-upload"
                 type="file"
                 multiple
-                accept="image/*"
                 onChange={handleImageUpload}
                 className="hidden"
               />

@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useERPAuth } from '@/contexts/ERPAuthContext';
 import { SidebarLink } from '@/types';
-import { ShoppingCart, Package, DollarSign, TrendingUp, Settings } from 'lucide-react';
+import { ShoppingCart, Package, DollarSign, TrendingUp } from 'lucide-react';
 
 const BottomNavigation: React.FC = () => {
   const { currentUser, hasModuleAccess } = useERPAuth();
@@ -35,12 +35,6 @@ const BottomNavigation: React.FC = () => {
       icon: <TrendingUp size={20} />,
       roles: ['manager']
     },
-    {
-      title: 'Settings',
-      path: '/settings',
-      icon: <Settings size={20} />,
-      roles: ['manager', 'employee']
-    }
   ];
   
   // Filter links based on user role  
@@ -72,7 +66,7 @@ const BottomNavigation: React.FC = () => {
             <span className="mb-1 transition-transform duration-200 hover:scale-110">
               {link.icon}
             </span>
-            <span className="text-xs font-medium truncate max-w-[60px] leading-tight">
+            <span className="text-xs font-medium truncate max-w-[80px] leading-tight">
               {link.title}
             </span>
           </NavLink>

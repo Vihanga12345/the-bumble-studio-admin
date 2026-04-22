@@ -7,10 +7,9 @@ headers = []
 [functions."*"]
 
 [build]
-publish = "D:\\Vihanga\\Autumn Leathers\\Autumn Leathers Website\\HB_admin\\dist"
+publish = "D:\\Vihanga\\The Bumble Studio\\The Bumble Studio Website\\TBS_admin\\dist"
 publishOrigin = "config"
 commandOrigin = "config"
-base = "D:\\Vihanga\\Autumn Leathers\\Autumn Leathers Website\\HB_admin"
 command = "npm run build"
 
 [build.environment]
