@@ -3,7 +3,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '@/components/layout/Layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Package, History } from 'lucide-react';
+import { Package, Warehouse } from 'lucide-react';
 import { useERPAuth } from '@/contexts/ERPAuthContext';
 
 const InventoryPage = () => {
@@ -19,10 +19,10 @@ const InventoryPage = () => {
       roles: ['manager', 'employee']
     },
     {
-      title: 'Inventory Transactions',
-      description: 'View all stock movements and transaction history',
-      icon: <History className="h-12 w-12 text-primary/70" />,
-      path: '/inventory/transactions',
+      title: 'Stock Management',
+      description: 'Set stock counts for production items shown on the website',
+      icon: <Warehouse className="h-12 w-12 text-primary/70" />,
+      path: '/inventory/stock',
       roles: ['manager', 'employee']
     }
   ];

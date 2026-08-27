@@ -415,6 +415,16 @@ export default function WebsiteOrderList() {
                             <div>
                               <div className="font-medium">{order.customer_name}</div>
                               <div className="text-sm text-gray-500">{order.customer_email}</div>
+                              {order.customer_phone && (
+                                <div className="text-sm text-gray-500">{order.customer_phone}</div>
+                              )}
+                              {(order.shipping_city || order.shipping_address) && (
+                                <div className="text-xs text-gray-400">
+                                  {[order.shipping_address, order.shipping_city, order.shipping_postal_code]
+                                    .filter(Boolean)
+                                    .join(', ')}
+                                </div>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell>

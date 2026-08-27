@@ -11,6 +11,7 @@ import SalesOrderDetail from "@/pages/sales/orders/SalesOrderDetail";
 import WebsiteOrderList from "@/pages/sales/orders/WebsiteOrderList";
 import SalesReturnsPage from "@/pages/sales/returns/SalesReturnsPage";
 import SalesReportsPage from "@/pages/sales/reports/SalesReportsPage";
+import SalesAnalyticsPage from "@/pages/sales/analytics/SalesAnalyticsPage";
 import CrafterDetails from "@/pages/sales/crafter/CrafterDetails";
 
 const SalesRoutes = (
@@ -80,6 +81,11 @@ const SalesRoutes = (
         <SalesReportsPage />
       </ProtectedRoute>
     } />
+    <Route path="analytics" element={
+      <ProtectedRoute>
+        <SalesAnalyticsPage />
+      </ProtectedRoute>
+    } />
   </Route>
 );
 
@@ -133,5 +139,9 @@ export const salesRoutes = [
   {
     path: '/sales/reports',
     element: <SalesReportsPage />
+  },
+  {
+    path: '/sales/analytics',
+    element: <SalesAnalyticsPage />
   }
 ];

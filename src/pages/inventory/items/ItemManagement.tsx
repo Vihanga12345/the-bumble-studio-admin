@@ -17,7 +17,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { LinkedItemInfo, ItemCategory } from '@/types';
+import { Switch } from '@/components/ui/switch';
+import { LinkedItemInfo } from '@/types';
 import { supabase } from '@/integrations/supabase/client';
 
 type TabValue = 'selling' | 'crafting' | 'hides';
@@ -27,9 +28,11 @@ const ItemManagement = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = (searchParams.get('tab') as TabValue) || 'selling';
   const [activeTab, setActiveTab] = useState<TabValue>(tabFromUrl);
-  const { items, deleteItem, getLinkedItems } = useInventory();
-  const { hides, deleteHide } = useHides();
+  const { items, deleteItem, getLinkedItems, refreshInventoryData } = useInventory();
+  const { hides, deleteHide, updateHide } = useHides();
   const [searchTerm, setSearchTerm] = useState('');
+  const [showPositive, setShowPositive] = useState(true);
+  const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [deleteType, setDeleteType] = useState<'item' | 'hide'>('item');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -60,22 +63,31 @@ const ItemManagement = () => {
   const handleTabChange = (value: string) => {
     const v = value as TabValue;
     setActiveTab(v);
+    setShowPositive(true);
     setSearchParams({ tab: v });
   };
+
+  const filterLabels = activeTab === 'selling'
+    ? { on: 'Visible', off: 'Hidden' }
+    : activeTab === 'crafting'
+      ? { on: 'Active', off: 'Inactive' }
+      : { on: 'Available', off: 'Unavailable' };
 
   // Filter items (main items only, no variants)
   const filteredSellingItems = items.filter(item => {
     const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (item.category && item.category.toLowerCase().includes(searchTerm.toLowerCase()));
-    return matchesSearch && item.itemCategory === 'Selling' && !item.isVariant && !item.parentItemId;
+    const matchesVisibility = showPositive ? item.isWebsiteItem === true : item.isWebsiteItem !== true;
+    return matchesSearch && matchesVisibility && item.itemCategory === 'Selling' && !item.isVariant && !item.parentItemId;
   });
 
   const filteredCraftingItems = items.filter(item => {
     const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (item.category && item.category.toLowerCase().includes(searchTerm.toLowerCase()));
-    return matchesSearch && item.itemCategory === 'Crafting' && !item.isVariant && !item.parentItemId;
+    const matchesActive = showPositive ? item.isActive : !item.isActive;
+    return matchesSearch && matchesActive && item.itemCategory === 'Crafting' && !item.isVariant && !item.parentItemId;
   });
 
   const filteredHides = hides.filter(hide => {
@@ -83,8 +95,72 @@ const ItemManagement = () => {
       (hide.finishing || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (hide.leatherGrain || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (hide.country || '').toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesSearch;
+    const matchesAvailability = showPositive ? hide.isAvailable : !hide.isAvailable;
+    return matchesSearch && matchesAvailability;
   });
+
+  const setToggling = (id: string, isToggling: boolean) => {
+    setTogglingIds((prev) => {
+      const next = new Set(prev);
+      if (isToggling) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const handleToggleWebsiteVisibility = async (itemId: string, isVisible: boolean) => {
+    setToggling(itemId, true);
+    try {
+      const { error: rpcError } = await supabase.rpc('set_inventory_item_website_visibility', {
+        p_item_id: itemId,
+        p_is_visible: isVisible
+      });
+      if (rpcError) {
+        const { error: directError } = await supabase
+          .from('inventory_items')
+          .update({ is_website_item: isVisible })
+          .eq('id', itemId);
+        if (directError) throw directError;
+      }
+      await refreshInventoryData();
+      toast.success(isVisible ? 'Item is now visible on the website' : 'Item is now hidden from the website');
+    } catch (error) {
+      console.error('Error updating website visibility:', error);
+      toast.error('Failed to update website visibility');
+    } finally {
+      setToggling(itemId, false);
+    }
+  };
+
+  const handleToggleActive = async (itemId: string, isActive: boolean) => {
+    setToggling(itemId, true);
+    try {
+      const { error } = await supabase
+        .from('inventory_items')
+        .update({ is_active: isActive })
+        .eq('id', itemId);
+      if (error) throw error;
+      await refreshInventoryData();
+      toast.success(isActive ? 'Item is now active' : 'Item is now inactive');
+    } catch (error) {
+      console.error('Error updating item status:', error);
+      toast.error('Failed to update item status');
+    } finally {
+      setToggling(itemId, false);
+    }
+  };
+
+  const handleToggleHideAvailable = async (hideId: string, isAvailable: boolean) => {
+    setToggling(hideId, true);
+    try {
+      await updateHide(hideId, { isAvailable });
+    } catch (error) {
+      console.error('Error updating hide availability:', error);
+      toast.error('Failed to update hide availability');
+    } finally {
+      setToggling(hideId, false);
+    }
+  };
 
   const handleViewLinkedItems = async (itemId: string, itemName: string) => {
     setSelectedItemForLinks(itemId);
@@ -250,15 +326,38 @@ const ItemManagement = () => {
           </div>
 
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div className="relative w-full sm:w-[280px]">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                type="search"
-                placeholder={activeTab === 'hides' ? 'Search hides...' : 'Search items...'}
-                className="pl-8 w-full"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full sm:w-auto">
+              <div className="relative w-full sm:w-[280px]">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="search"
+                  placeholder={activeTab === 'hides' ? 'Search hides...' : 'Search items...'}
+                  className="pl-8 w-full"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center gap-2 rounded-md border px-3 py-2 bg-background">
+                <button
+                  type="button"
+                  className={`text-sm whitespace-nowrap ${showPositive ? 'font-medium' : 'text-muted-foreground'}`}
+                  onClick={() => setShowPositive(true)}
+                >
+                  {filterLabels.on}
+                </button>
+                <Switch
+                  checked={!showPositive}
+                  onCheckedChange={(checked) => setShowPositive(!checked)}
+                  aria-label={`Show ${showPositive ? filterLabels.on : filterLabels.off} items`}
+                />
+                <button
+                  type="button"
+                  className={`text-sm whitespace-nowrap ${!showPositive ? 'font-medium' : 'text-muted-foreground'}`}
+                  onClick={() => setShowPositive(false)}
+                >
+                  {filterLabels.off}
+                </button>
+              </div>
             </div>
             <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full sm:w-auto">
               <Button variant="outline" onClick={exportToPdf} disabled={isExportingPdf}>
@@ -316,7 +415,6 @@ const ItemManagement = () => {
                           <TableHead>Image</TableHead>
                           <TableHead>Name</TableHead>
                           <TableHead>Category</TableHead>
-                          <TableHead>Status</TableHead>
                           <TableHead className="text-right">Price</TableHead>
                           <TableHead className="text-right">Website</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
@@ -334,9 +432,18 @@ const ItemManagement = () => {
                             </TableCell>
                             <TableCell className="font-medium">{item.name}{item.sku && <span className="block text-xs text-muted-foreground">SKU: {item.sku}</span>}</TableCell>
                             <TableCell>{item.category || '-'}</TableCell>
-                            <TableCell><Badge variant={item.isActive ? 'default' : 'secondary'}>{item.isActive ? 'Active' : 'Inactive'}</Badge></TableCell>
                             <TableCell className="text-right">Rs {item.sellingPrice.toFixed(2)}</TableCell>
-                            <TableCell className="text-right">{item.isWebsiteItem ? <Badge className="bg-green-500">✓ Visible</Badge> : <Badge variant="secondary">✗ Hidden</Badge>}</TableCell>
+                            <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-end gap-2">
+                                <span className="text-xs text-muted-foreground">{item.isWebsiteItem ? 'Visible' : 'Hidden'}</span>
+                                <Switch
+                                  checked={item.isWebsiteItem === true}
+                                  disabled={togglingIds.has(item.id)}
+                                  onCheckedChange={(checked) => handleToggleWebsiteVisibility(item.id, checked === true)}
+                                  aria-label={`${item.isWebsiteItem ? 'Hide' : 'Show'} ${item.name} on website`}
+                                />
+                              </div>
+                            </TableCell>
                             <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                               <div className="flex justify-end gap-1">
                                 <Button variant="ghost" size="sm" onClick={(e) => handleEditItem(item.id, e)}><Edit className="h-4 w-4" /></Button>
@@ -345,7 +452,7 @@ const ItemManagement = () => {
                             </TableCell>
                           </TableRow>
                         )) : (
-                          <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No selling materials found.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No {showPositive ? 'visible' : 'hidden'} selling materials found.</TableCell></TableRow>
                         )}
                       </TableBody>
                     </Table>
@@ -364,9 +471,9 @@ const ItemManagement = () => {
                           <TableHead>Image</TableHead>
                           <TableHead>Name</TableHead>
                           <TableHead>Category</TableHead>
-                          <TableHead>Status</TableHead>
                           <TableHead className="text-right">Price</TableHead>
                           <TableHead className="text-right">Stock</TableHead>
+                          <TableHead className="text-right">Active</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -382,9 +489,19 @@ const ItemManagement = () => {
                             </TableCell>
                             <TableCell className="font-medium">{item.name}{item.sku && <span className="block text-xs text-muted-foreground">SKU: {item.sku}</span>}</TableCell>
                             <TableCell>{item.category || '-'}</TableCell>
-                            <TableCell><Badge variant={item.isActive ? 'default' : 'secondary'}>{item.isActive ? 'Active' : 'Inactive'}</Badge></TableCell>
                             <TableCell className="text-right">Rs {item.purchaseCost.toFixed(2)}</TableCell>
                             <TableCell className="text-right"><span className={item.currentStock === 0 ? 'text-destructive font-semibold' : ''}>{item.currentStock}</span></TableCell>
+                            <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-end gap-2">
+                                <span className="text-xs text-muted-foreground">{item.isActive ? 'Active' : 'Inactive'}</span>
+                                <Switch
+                                  checked={item.isActive}
+                                  disabled={togglingIds.has(item.id)}
+                                  onCheckedChange={(checked) => handleToggleActive(item.id, checked === true)}
+                                  aria-label={`${item.isActive ? 'Deactivate' : 'Activate'} ${item.name}`}
+                                />
+                              </div>
+                            </TableCell>
                             <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                               <div className="flex justify-end gap-1">
                                 <Button variant="ghost" size="sm" title="Add Stock" onClick={(e) => openTransactionDialog(item.id, item.name, 'craft_completed', e)} className="text-green-600"><PlusCircle className="h-4 w-4" /></Button>
@@ -394,7 +511,7 @@ const ItemManagement = () => {
                             </TableCell>
                           </TableRow>
                         )) : (
-                          <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No crafting materials found.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No {showPositive ? 'active' : 'inactive'} crafting materials found.</TableCell></TableRow>
                         )}
                       </TableBody>
                     </Table>
@@ -413,9 +530,9 @@ const ItemManagement = () => {
                           <TableHead>Image</TableHead>
                           <TableHead>Name</TableHead>
                           <TableHead>Grain</TableHead>
-                          <TableHead>Status</TableHead>
                           <TableHead className="text-right">Price</TableHead>
                           <TableHead className="text-right">SQ Feet</TableHead>
+                          <TableHead className="text-right">Available</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -431,9 +548,19 @@ const ItemManagement = () => {
                             </TableCell>
                             <TableCell className="font-medium">{hide.hideName}</TableCell>
                             <TableCell>{hide.leatherGrain || '-'}</TableCell>
-                            <TableCell><Badge variant={hide.isAvailable ? 'default' : 'secondary'}>{hide.isAvailable ? 'Available' : 'Not Available'}</Badge></TableCell>
                             <TableCell className="text-right">Rs {hide.price.toFixed(2)}</TableCell>
                             <TableCell className="text-right">{hide.sqFeet.toFixed(2)}</TableCell>
+                            <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-end gap-2">
+                                <span className="text-xs text-muted-foreground">{hide.isAvailable ? 'Available' : 'Unavailable'}</span>
+                                <Switch
+                                  checked={hide.isAvailable}
+                                  disabled={togglingIds.has(hide.id)}
+                                  onCheckedChange={(checked) => handleToggleHideAvailable(hide.id, checked === true)}
+                                  aria-label={`${hide.isAvailable ? 'Mark unavailable' : 'Mark available'} ${hide.hideName}`}
+                                />
+                              </div>
+                            </TableCell>
                             <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                               <div className="flex justify-end gap-1">
                                 <Button variant="ghost" size="sm" onClick={(e) => handleEditHide(hide.id, e)}><Edit className="h-4 w-4" /></Button>
@@ -442,7 +569,7 @@ const ItemManagement = () => {
                             </TableCell>
                           </TableRow>
                         )) : (
-                          <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No hides found.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No {showPositive ? 'available' : 'unavailable'} hides found.</TableCell></TableRow>
                         )}
                       </TableBody>
                     </Table>

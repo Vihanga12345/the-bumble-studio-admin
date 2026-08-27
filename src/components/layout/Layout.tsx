@@ -1,9 +1,9 @@
-
 import React, { ReactNode, useState } from 'react';
 import { useERPAuth } from '@/contexts/ERPAuthContext';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import BottomNavigation from './BottomNavigation';
+import ThemeToggle from '@/components/ThemeToggle';
 import { cn } from '@/lib/utils';
 
 interface LayoutProps {
@@ -15,8 +15,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   
   return (
-    <div className="flex min-h-screen bg-background">
-      {/* Desktop Sidebar */}
+    <div className="flex min-h-screen bg-background text-foreground">
       {isAuthenticated && (
         <div className="hidden md:block">
           <Sidebar 
@@ -26,25 +25,22 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
       )}
       
-      {/* Main Content */}
       <div className={cn(
         "flex flex-col flex-1 transition-all duration-300",
         isAuthenticated ? (sidebarCollapsed ? "md:ml-[70px]" : "md:ml-[250px]") : ""
       )}>
-        {/* Desktop TopBar */}
         {isAuthenticated && (
           <div className="hidden md:block">
             <TopBar />
           </div>
         )}
         
-        {/* Mobile TopBar */}
         {isAuthenticated && (
           <div className="block md:hidden bg-card/95 backdrop-blur border-b border-border px-3 py-2 sticky top-0 z-40">
             <div className="flex items-center justify-between">
-              <h1 className="font-playfair text-base font-semibold text-bumble-light truncate">Admin</h1>
+              <h1 className="font-playfair text-base font-semibold text-foreground truncate">Admin</h1>
               <div className="flex items-center space-x-2">
-                {/* You can add mobile-specific actions here */}
+                <ThemeToggle />
               </div>
             </div>
           </div>
@@ -52,9 +48,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         
         <main className={cn(
           "flex-1 transition-all duration-300",
-          // Desktop padding
           "md:px-6 md:py-6",
-          // Mobile padding with bottom nav space
           "px-3 py-4 pb-24 sm:px-4",
           !isAuthenticated ? "pt-0" : "",
           "animate-fade-in"
@@ -65,7 +59,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </main>
       </div>
       
-      {/* Mobile Bottom Navigation */}
       {isAuthenticated && <BottomNavigation />}
     </div>
   );

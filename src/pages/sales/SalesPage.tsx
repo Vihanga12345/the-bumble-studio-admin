@@ -6,7 +6,8 @@ import { useERPAuth } from '@/contexts/ERPAuthContext';
 import { 
   ShoppingBag,
   PlusCircle,
-  Clock3
+  Clock3,
+  BarChart3
 } from 'lucide-react';
 
 const SalesPage = () => {
@@ -28,6 +29,14 @@ const SalesPage = () => {
       icon: ShoppingBag,
       path: '/sales/website-orders',
       color: 'bg-purple-500',
+      count: 0
+    },
+    {
+      title: 'Sales Analytics',
+      description: 'Order trends, product sales, and distribution charts',
+      icon: BarChart3,
+      path: '/sales/analytics',
+      color: 'bg-emerald-500',
       count: 0
     },
     {

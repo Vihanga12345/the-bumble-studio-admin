@@ -464,14 +464,26 @@ export function useInventory() {
         .delete()
         .eq('id', id);
       
-      if (error) throw error;
+      if (error) {
+        // FK violation: item is referenced in sales orders
+        if (error.code === '23503') {
+          const friendlyMsg = 'This item is used in existing sales orders and cannot be deleted. You can deactivate it instead by editing the item and toggling it inactive.';
+          toast.error(friendlyMsg);
+          throw new Error(friendlyMsg);
+        }
+        throw error;
+      }
       
       setItems(prevItems => prevItems.filter(item => item.id !== id));
       toast.success('Inventory item deleted successfully');
       return true;
     } catch (error) {
       console.error('Error deleting item:', error);
-      toast.error('Failed to delete inventory item');
+      // Only show generic error if we haven't already shown a specific one
+      const msg = (error as any)?.message || '';
+      if (!msg.includes('sales orders')) {
+        toast.error('Failed to delete inventory item');
+      }
       throw error;
     }
   }, []);

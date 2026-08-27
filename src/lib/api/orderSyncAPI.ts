@@ -407,68 +407,58 @@ export class OrderSyncAPI {
    */
   static async getWebsiteOrders(): Promise<WebsiteOrder[]> {
     try {
+      // Read sales_orders directly so the customer details saved by the
+      // website checkout (customer_name, phone, address, city, postal code)
+      // are always shown — these live on the sales_orders row itself and do
+      // not depend on a linked website_users/customers record.
       const { data: orders, error } = await supabase
-        .from('website_orders_for_erp')
-        .select('*')
+        .from('sales_orders')
+        .select(`
+          id,
+          order_number,
+          status,
+          order_date,
+          total_amount,
+          payment_method,
+          shipping_address,
+          shipping_city,
+          shipping_postal_code,
+          customer_name,
+          customer_email,
+          customer_phone,
+          delivery_instructions,
+          created_at,
+          updated_at
+        `)
+        .eq('order_source', 'website')
+        .eq('business_id', E_COMMERCE_BUSINESS_ID)
         .order('created_at', { ascending: false });
 
       if (error) {
         console.error('Error fetching website orders:', error);
-        
-        // Fallback: Query sales_orders directly
-        const { data: fallbackOrders, error: fallbackError } = await supabase
-          .from('sales_orders')
-          .select(`
-            id,
-            order_number,
-            status,
-            order_date,
-            total_amount,
-            payment_method,
-            shipping_address,
-            shipping_city,
-            shipping_postal_code,
-            customer_email,
-            customer_phone,
-            delivery_instructions,
-            created_at,
-            updated_at,
-            customers!inner(name, email),
-            website_users(first_name, last_name, email)
-          `)
-          .eq('order_source', 'website')
-          .eq('business_id', E_COMMERCE_BUSINESS_ID)
-          .order('created_at', { ascending: false });
-
-        if (fallbackError) {
-          console.error('Fallback query also failed:', fallbackError);
-          return [];
-        }
-
-        // Transform fallback data to match expected format
-        return (fallbackOrders || []).map(order => ({
-          id: order.id,
-          order_number: order.order_number,
-          status: order.status,
-          order_date: order.order_date,
-          total_amount: order.total_amount,
-          payment_method: order.payment_method,
-          shipping_address: order.shipping_address || '',
-          shipping_city: order.shipping_city || '',
-          shipping_postal_code: order.shipping_postal_code || '',
-          customer_email: order.customer_email || '',
-          customer_phone: order.customer_phone || '',
-          delivery_instructions: order.delivery_instructions || '',
-          customer_name: order.customers?.name || 'Unknown Customer',
-          user_email: order.website_users?.email || order.customer_email || '',
-          customer_record_name: order.customers?.name || 'Unknown Customer',
-          order_items: [],
-          created_at: order.created_at,
-          updated_at: order.updated_at
-        }));
+        return [];
       }
 
-      return orders || [];
+      return (orders || []).map((order: Record<string, any>) => ({
+        id: order.id,
+        order_number: order.order_number,
+        status: order.status,
+        order_date: order.order_date,
+        total_amount: Number(order.total_amount) || 0,
+        payment_method: order.payment_method || '',
+        shipping_address: order.shipping_address || '',
+        shipping_city: order.shipping_city || '',
+        shipping_postal_code: order.shipping_postal_code || '',
+        customer_email: order.customer_email || '',
+        customer_phone: order.customer_phone || '',
+        delivery_instructions: order.delivery_instructions || '',
+        customer_name: order.customer_name || 'Unknown Customer',
+        user_email: order.customer_email || '',
+        customer_record_name: order.customer_name || 'Unknown Customer',
+        order_items: [],
+        created_at: order.created_at,
+        updated_at: order.updated_at,
+      }));
     } catch (error) {
       console.error('Error in getWebsiteOrders:', error);
       return [];
@@ -530,17 +520,53 @@ export class OrderSyncAPI {
   static async getOrderDetails(orderId: string): Promise<WebsiteOrder | null> {
     try {
       const { data: order, error } = await supabase
-        .from('website_orders_for_erp')
-        .select('*')
+        .from('sales_orders')
+        .select(`
+          id,
+          order_number,
+          status,
+          order_date,
+          total_amount,
+          payment_method,
+          shipping_address,
+          shipping_city,
+          shipping_postal_code,
+          customer_name,
+          customer_email,
+          customer_phone,
+          delivery_instructions,
+          created_at,
+          updated_at
+        `)
         .eq('id', orderId)
         .single();
 
-      if (error) {
+      if (error || !order) {
         console.error('Error fetching order details:', error);
         return null;
       }
 
-      return order;
+      const o = order as Record<string, any>;
+      return {
+        id: o.id,
+        order_number: o.order_number,
+        status: o.status,
+        order_date: o.order_date,
+        total_amount: Number(o.total_amount) || 0,
+        payment_method: o.payment_method || '',
+        shipping_address: o.shipping_address || '',
+        shipping_city: o.shipping_city || '',
+        shipping_postal_code: o.shipping_postal_code || '',
+        customer_email: o.customer_email || '',
+        customer_phone: o.customer_phone || '',
+        delivery_instructions: o.delivery_instructions || '',
+        customer_name: o.customer_name || 'Unknown Customer',
+        user_email: o.customer_email || '',
+        customer_record_name: o.customer_name || 'Unknown Customer',
+        order_items: [],
+        created_at: o.created_at,
+        updated_at: o.updated_at,
+      };
     } catch (error) {
       console.error('Error in getOrderDetails:', error);
       return null;

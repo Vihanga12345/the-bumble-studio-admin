@@ -17,6 +17,13 @@ import { toast } from 'sonner';
 import { uploadMultipleImages, validateImageFile } from '@/lib/uploadUtils';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  PRODUCT_CATEGORIES,
+  PRODUCT_FEATURE_FIELDS,
+  parseItemSpecifications,
+  serializeItemSpecifications,
+  resolveProductCategory,
+} from '@/lib/productConstants';
 
 const unitOfMeasureOptions: { value: UnitOfMeasure; label: string }[] = [
   { value: 'pieces', label: 'Pieces' },
@@ -55,7 +62,15 @@ const ItemForm = ({ defaultCategory = 'Selling', hideTabs = false }: ItemFormPro
     sellingPrice: '0',
     imageUrl: '',
     specifications: '',
-    mainStock: '0',
+    productCategory: 'Wallets',
+    dimensions: '',
+    cardSlots: '',
+    profile: '',
+    material: '',
+    stitching: '',
+    hardware: '',
+    aboutThisProduct: '',
+    mainStock: '1',
     isWebsiteItem: true
   });
 
@@ -79,6 +94,7 @@ const ItemForm = ({ defaultCategory = 'Selling', hideTabs = false }: ItemFormPro
         const category = item.itemCategory || 'Selling';
         setActiveTab(category);
         const isWebsiteFromItem = item.isWebsiteItem === true || item.isWebsiteItem === false ? item.isWebsiteItem : true;
+        const parsedSpecs = parseItemSpecifications(item.specifications);
         setFormData({
           name: item.name,
           description: item.description,
@@ -91,16 +107,15 @@ const ItemForm = ({ defaultCategory = 'Selling', hideTabs = false }: ItemFormPro
           imageUrl: item.imageUrl || '',
           mainStock: item.currentStock?.toString() || '0',
           isWebsiteItem: isWebsiteFromItem,
-          specifications: (() => {
-            try {
-              if (!item.specifications || item.specifications === '{}') return '';
-              if (typeof item.specifications === 'string') return item.specifications;
-              const parsed = JSON.parse(item.specifications as string);
-              return (parsed.features || []).join('\n');
-            } catch {
-              return '';
-            }
-          })()
+          specifications: parsedSpecs.features,
+          productCategory: resolveProductCategory(item.category),
+          dimensions: parsedSpecs.productFeatures.dimensions,
+          cardSlots: parsedSpecs.productFeatures.cardSlots,
+          profile: parsedSpecs.productFeatures.profile,
+          material: parsedSpecs.productFeatures.material,
+          stitching: parsedSpecs.productFeatures.stitching,
+          hardware: parsedSpecs.productFeatures.hardware,
+          aboutThisProduct: parsedSpecs.productFeatures.aboutThisProduct,
         });
         
         if (category === 'Selling') {
@@ -213,7 +228,20 @@ const ItemForm = ({ defaultCategory = 'Selling', hideTabs = false }: ItemFormPro
     if (!isEditMode) {
       if (tab === 'Crafting') {
         setSelectedLinkedHideIds([]);
-        setFormData(prev => ({ ...prev, sellingPrice: '0', specifications: '', isWebsiteItem: false }));
+        setFormData(prev => ({
+          ...prev,
+          sellingPrice: '0',
+          specifications: '',
+          isWebsiteItem: false,
+          productCategory: 'Wallets',
+          dimensions: '',
+          cardSlots: '',
+          profile: '',
+          material: '',
+          stitching: '',
+          hardware: '',
+          aboutThisProduct: '',
+        }));
       } else {
         setFormData(prev => ({ ...prev, purchaseCost: '0', purchasedDate: '', isWebsiteItem: true }));
       }
@@ -270,8 +298,8 @@ const ItemForm = ({ defaultCategory = 'Selling', hideTabs = false }: ItemFormPro
     
     try {
       const mainStockValue = activeTab === 'Selling'
-        ? 0
-        : Math.max(0, parseInt(formData.mainStock || '0'));
+        ? Math.max(0, parseInt(formData.mainStock || '1', 10) || 1)
+        : Math.max(0, parseInt(formData.mainStock || '0', 10) || 0);
       const baseItemData: any = {
         name: formData.name,
         description: formData.description,
@@ -310,13 +338,22 @@ const ItemForm = ({ defaultCategory = 'Selling', hideTabs = false }: ItemFormPro
         baseItemData.purchase_cost = 0; // Not used for selling items
         baseItemData.selling_price = sellingPrice;
         baseItemData.discount_percentage = 0; // Removed from UI
-        baseItemData.current_stock = 0;
+        // New selling/production items default to stock 1 (admin can change in Stock Management)
+        baseItemData.current_stock = isEditMode ? mainStockValue : (mainStockValue || 1);
         baseItemData.reorder_level = 0; // Removed from UI
         baseItemData.sku = ''; // Removed from UI
         baseItemData.is_website_item = isWebsiteItemValue;
         baseItemData.item_type = 'Finished Products';
         baseItemData.weight = 0; // Removed from UI
-        baseItemData.specifications = formData.specifications || undefined;
+        baseItemData.specifications = serializeItemSpecifications(formData.specifications, {
+          dimensions: formData.dimensions,
+          cardSlots: formData.cardSlots,
+          profile: formData.profile,
+          material: formData.material,
+          stitching: formData.stitching,
+          hardware: formData.hardware,
+          aboutThisProduct: formData.aboutThisProduct,
+        });
       }
       
       const mainItemPayload = {
@@ -337,7 +374,7 @@ const ItemForm = ({ defaultCategory = 'Selling', hideTabs = false }: ItemFormPro
         discount_percentage: baseItemData.discount_percentage,
         weight: baseItemData.weight,
         specifications: baseItemData.specifications,
-        category: activeTab === 'Crafting' ? 'Raw Materials' : 'Leather Products',
+        category: activeTab === 'Crafting' ? 'Raw Materials' : resolveProductCategory(formData.productCategory),
         sku: '',
         is_variant: false,
         parent_item_id: null,
@@ -577,6 +614,34 @@ const ItemForm = ({ defaultCategory = 'Selling', hideTabs = false }: ItemFormPro
                       Upload up to {MAX_IMAGES_PER_ITEM} images. The first image is used as the primary product image on cards.
                     </p>
                   </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="productCategory">Product Category</Label>
+                    <Select
+                      value={formData.productCategory}
+                      onValueChange={(value) => setFormData((prev) => ({ ...prev, productCategory: value }))}
+                    >
+                      <SelectTrigger id="productCategory">
+                        <SelectValue placeholder="Select a category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[
+                          ...PRODUCT_CATEGORIES,
+                          ...(formData.productCategory &&
+                          !(PRODUCT_CATEGORIES as readonly string[]).includes(formData.productCategory)
+                            ? [formData.productCategory]
+                            : []),
+                        ].map((category) => (
+                          <SelectItem key={category} value={category}>
+                            {category}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Used to group this leather product in the admin panel and on the shop page.
+                    </p>
+                  </div>
                   
                   <div className="space-y-2">
                     <Label htmlFor="description">Description</Label>
@@ -609,19 +674,38 @@ const ItemForm = ({ defaultCategory = 'Selling', hideTabs = false }: ItemFormPro
                     </p>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="specifications">Product Specifications</Label>
-                    <Textarea
-                      id="specifications"
-                      name="specifications"
-                      placeholder="Enter product specifications (one per line)"
-                      value={formData.specifications}
-                      onChange={handleInputChange}
-                      rows={4}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Enter each specification on a new line
-                    </p>
+                  <div className="border rounded-lg p-4 bg-muted/20 space-y-4">
+                    <div>
+                      <Label className="text-base font-semibold">Product Properties</Label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Record the features customers will see on the product page.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {PRODUCT_FEATURE_FIELDS.map((field) => (
+                        <div key={field.key} className="space-y-2">
+                          <Label htmlFor={field.key}>{field.label}</Label>
+                          <Input
+                            id={field.key}
+                            name={field.key}
+                            placeholder={field.placeholder}
+                            value={formData[field.key]}
+                            onChange={handleInputChange}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="aboutThisProduct">About this Product</Label>
+                      <Textarea
+                        id="aboutThisProduct"
+                        name="aboutThisProduct"
+                        placeholder="Tell customers about this piece, how it is crafted, and what makes it special."
+                        value={formData.aboutThisProduct}
+                        onChange={handleInputChange}
+                        rows={4}
+                      />
+                    </div>
                   </div>
 
                   <div className="flex items-start justify-between gap-4 rounded-lg border p-4 bg-muted/20">
@@ -641,9 +725,9 @@ const ItemForm = ({ defaultCategory = 'Selling', hideTabs = false }: ItemFormPro
                   </div>
 
                   <div className="border rounded-lg p-4 bg-muted/20 space-y-3">
-                    <Label className="text-base font-semibold">Leather Hide (Website Selection)</Label>
+                    <Label className="text-base font-semibold">Leathers the Crafter Can Use</Label>
                     <p className="text-sm text-muted-foreground">
-                      Select hides customers can choose from during checkout. Shows animal, grain, finishing and image.
+                      Select the leathers available for this product. Customers will see the leather name, type, attributes, and image on the product page.
                     </p>
                     {availableHides.length > 0 ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -659,15 +743,17 @@ const ItemForm = ({ defaultCategory = 'Selling', hideTabs = false }: ItemFormPro
                             />
                             <div className="flex gap-2 flex-1 min-w-0">
                               {(hide.imageUrls?.[0]) ? (
-                                <img src={hide.imageUrls[0]} alt={hide.hideName} className="w-12 h-12 object-cover rounded flex-shrink-0" />
+                                <img src={hide.imageUrls[0]} alt={hide.hideName} className="w-14 h-14 object-cover rounded flex-shrink-0" />
                               ) : (
-                                <div className="w-12 h-12 bg-muted rounded flex-shrink-0 flex items-center justify-center text-xs text-muted-foreground">No img</div>
+                                <div className="w-14 h-14 bg-muted rounded flex-shrink-0 flex items-center justify-center text-xs text-muted-foreground">No img</div>
                               )}
                               <div className="min-w-0">
                                 <span className="text-sm font-medium block">{hide.hideName}</span>
-                                <span className="text-xs text-muted-foreground">
-                                  {hide.animalType} · {hide.leatherGrain || '-'} · {hide.finishing}
-                                  {hide.leatherGrain ? ` · ${hide.leatherGrain}` : ''}
+                                <span className="text-xs text-muted-foreground block">
+                                  Type: {hide.animalType || 'Leather'}
+                                </span>
+                                <span className="text-xs text-muted-foreground block">
+                                  {[hide.leatherGrain, hide.finishing, hide.country].filter(Boolean).join(' · ') || 'No extra attributes'}
                                 </span>
                               </div>
                             </div>

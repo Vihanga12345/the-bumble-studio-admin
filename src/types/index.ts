@@ -366,3 +366,58 @@ export interface FinancialCategory {
 }
 
 export type PurchaseOrderStatus = 'draft' | 'sent' | 'received' | 'completed' | 'cancelled';
+
+export type HideAnimalType = 'Goat' | 'Cow' | 'Buffalo' | 'Ostrich' | 'Other';
+export type HideFinishing = string;
+export type HideLeatherGrain = string | null;
+
+export interface Hide {
+  id: string;
+  hideName: string;
+  isAvailable: boolean;
+  sqFeet: number;
+  supplierId?: string | null;
+  supplierName?: string;
+  price: number;
+  estimatedProductsToBeMade: number;
+  costPerProduct: number;
+  animalType: HideAnimalType;
+  leatherGrain: HideLeatherGrain;
+  country?: string | null;
+  hideType?: string | null;
+  finishing: HideFinishing;
+  manHours: number;
+  notes?: string;
+  imageUrls?: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface PurchaseOrderHideLink {
+  hideId: string;
+  quantity: number;
+  unitPrice: number;
+  notes?: string;
+}
+
+export interface SalesOrderHideLink {
+  hideId: string;
+  productId?: string | null;
+  quantity: number;
+  manHours: number;
+  notes?: string;
+  unitCostPerProduct?: number;
+  lineTotal?: number;
+}
+
+export interface SalesOrderCostLine {
+  id?: string;
+  salesOrderId?: string;
+  itemType?: string;
+  hideId?: string | null;
+  inventoryItemId?: string | null;
+  description?: string;
+  quantity?: number;
+  unitCost?: number;
+  lineTotal?: number;
+}

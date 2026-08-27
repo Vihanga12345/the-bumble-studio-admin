@@ -5,11 +5,10 @@ import ItemManagement from "@/pages/inventory/items/ItemManagement";
 import ItemForm from "@/pages/inventory/items/ItemForm";
 import HideForm from "@/pages/inventory/hides/HideForm";
 import HideDetail from "@/pages/inventory/hides/HideDetail";
-import StockVisibility from "@/pages/inventory/stock/StockVisibility";
+import StockManagement from "@/pages/inventory/stock/StockManagement";
 import Adjustments from "@/pages/inventory/adjustments/Adjustments";
 import GoodsReceiptPage from "@/pages/inventory/goods-receipt/GoodsReceiptPage";
 import ReturnsPage from "@/pages/inventory/returns/ReturnsPage";
-import InventoryTransactions from "@/pages/inventory/transactions/InventoryTransactions";
 
 const InventoryRoutes = (
   <>
@@ -79,15 +78,9 @@ const InventoryRoutes = (
       </ProtectedRoute>
     } />
 
-    <Route path="/inventory/transactions" element={
-      <ProtectedRoute>
-        <InventoryTransactions />
-      </ProtectedRoute>
-    } />
-
     <Route path="/inventory/stock" element={
       <ProtectedRoute>
-        <StockVisibility />
+        <StockManagement />
       </ProtectedRoute>
     } />
 
@@ -159,12 +152,8 @@ export const inventoryRoutes = [
     element: <ItemManagement />
   },
   {
-    path: '/inventory/transactions',
-    element: <InventoryTransactions />
-  },
-  {
     path: '/inventory/stock',
-    element: <StockVisibility />
+    element: <StockManagement />
   },
   {
     path: '/inventory/adjustments',

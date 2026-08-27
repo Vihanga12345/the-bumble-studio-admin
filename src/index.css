@@ -7,89 +7,151 @@
 
 @layer base {
   :root {
-    /* Rustic Leather Crafty Theme - Dark Forest Green Admin */
-    --background: 100 30% 10%;          /* Dark forest green #14211A */
-    --foreground: 35 30% 96%;           /* Warm cream #FDFBF7 */
-    
-    --card: 100 25% 15%;                /* Dark green cards #1E2E23 */
-    --card-foreground: 35 30% 96%;      /* Cream text */
-    
-    --popover: 100 25% 12%;              
-    --popover-foreground: 35 30% 96%;   
-    
-    /* Bumble Green Primary */
-    --primary: 100 40% 48%;             /* Vibrant green #5FA549 */
-    --primary-foreground: 35 30% 98%;   /* Light cream */
-    
-    /* Manager role - Gold */
-    --manager: 45 75% 52%;              /* Warm gold #D4A935 */
-    --manager-foreground: 25 20% 12%;   /* Dark text */
-    
-    /* Employee role - Light Green */
-    --employee: 100 35% 55%;            /* Light green #7DB068 */
-    --employee-foreground: 35 30% 96%;  
-    
-    /* Warm tan secondary */
-    --secondary: 35 25% 75%;            /* Light tan #E8D7BB */
-    --secondary-foreground: 25 20% 12%; /* Dark text */
-    
-    --muted: 100 20% 20%;               /* Muted dark green */
-    --muted-foreground: 35 25% 75%;     /* Muted cream */
-    
-    /* Gold accent */
-    --accent: 45 75% 52%;               /* Gold #D4A935 */
-    --accent-foreground: 25 20% 12%;    
-    
+    /* Light Theme - White & Dark Forest Green */
+    --background: 48 25% 98%;
+    --foreground: 150 40% 13%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 150 40% 13%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 150 40% 13%;
+
+    --primary: 150 42% 21%;
+    --primary-foreground: 48 25% 98%;
+
+    --manager: 45 70% 45%;
+    --manager-foreground: 25 20% 12%;
+
+    --employee: 150 32% 34%;
+    --employee-foreground: 0 0% 100%;
+
+    --secondary: 90 18% 93%;
+    --secondary-foreground: 150 40% 13%;
+
+    --muted: 90 18% 93%;
+    --muted-foreground: 150 12% 38%;
+
+    --accent: 45 70% 45%;
+    --accent-foreground: 25 20% 12%;
+
+    --destructive: 0 70% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 150 15% 85%;
+    --input: 150 15% 88%;
+    --ring: 150 42% 26%;
+
+    --radius: 0.5rem;
+
+    --cream-light: 35 30% 96%;
+    --cream: 35 25% 90%;
+    --cream-dark: 35 20% 55%;
+
+    --bumble-green: 150 42% 26%;
+    --bumble-green-light: 150 35% 42%;
+    --bumble-green-dark: 150 45% 15%;
+
+    --gold: 45 70% 45%;
+    --gold-light: 45 65% 55%;
+    --gold-dark: 45 75% 34%;
+
+    --leather-dark: 150 40% 13%;
+    --leather: 150 15% 82%;
+    --leather-light: 90 18% 93%;
+
+    --gradient-leather: linear-gradient(135deg, hsl(0 0% 100%) 0%, hsl(90 18% 95%) 100%);
+    --gradient-green: linear-gradient(135deg, hsl(150 42% 28%) 0%, hsl(150 45% 18%) 100%);
+    --gradient-gold: linear-gradient(135deg, hsl(45 70% 45%) 0%, hsl(45 75% 34%) 100%);
+    --gradient-hero: linear-gradient(to bottom, hsl(48 25% 98% / 0.4), hsl(48 25% 98% / 0.95));
+
+    --shadow-leather: 0 4px 20px hsl(150 40% 13% / 0.10);
+    --shadow-gold-glow: 0 0 20px hsl(45 70% 45% / 0.25);
+    --shadow-green-glow: 0 0 20px hsl(150 42% 26% / 0.18);
+    --shadow-emboss: inset 0 1px 2px hsl(0 0% 100% / 0.7), 0 2px 4px hsl(150 40% 13% / 0.10);
+
+    --sidebar-background: 150 42% 11%;
+    --sidebar-foreground: 45 30% 94%;
+    --sidebar-primary: 45 70% 52%;
+    --sidebar-primary-foreground: 150 42% 11%;
+    --sidebar-accent: 150 35% 18%;
+    --sidebar-accent-foreground: 45 30% 94%;
+    --sidebar-border: 150 30% 22%;
+    --sidebar-ring: 45 70% 45%;
+
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .dark {
+    /* Dark Theme - Forest Green Admin */
+    --background: 100 30% 10%;
+    --foreground: 35 30% 96%;
+
+    --card: 100 25% 15%;
+    --card-foreground: 35 30% 96%;
+
+    --popover: 100 25% 12%;
+    --popover-foreground: 35 30% 96%;
+
+    --primary: 100 40% 48%;
+    --primary-foreground: 35 30% 98%;
+
+    --manager: 45 75% 52%;
+    --manager-foreground: 25 20% 12%;
+
+    --employee: 100 35% 55%;
+    --employee-foreground: 35 30% 96%;
+
+    --secondary: 35 25% 75%;
+    --secondary-foreground: 25 20% 12%;
+
+    --muted: 100 20% 20%;
+    --muted-foreground: 35 25% 75%;
+
+    --accent: 45 75% 52%;
+    --accent-foreground: 25 20% 12%;
+
     --destructive: 0 70% 50%;
     --destructive-foreground: 35 30% 96%;
-    
-    --border: 100 25% 25%;              /* Dark green borders */
-    --input: 100 20% 15%;               /* Very dark inputs */
-    --ring: 100 40% 50%;                /* Bright green focus ring */
-    
-    --radius: 0.5rem;
-    
-    /* Custom Bumble Studio tokens */
-    --cream-light: 35 30% 96%;          /* #FDFBF7 */
-    --cream: 35 25% 90%;                /* #F8F4ED */
-    --cream-dark: 35 25% 85%;           /* #F0E6D6 */
-    
-    --bumble-green: 100 40% 48%;        /* #5FA549 */
-    --bumble-green-light: 100 35% 58%;  /* #85B871 */
-    --bumble-green-dark: 100 45% 32%;   /* #2F7123 */
-    
-    --gold: 45 75% 52%;                 /* #D4A935 */
-    --gold-light: 45 70% 65%;           /* #F5D98A */
-    --gold-dark: 45 75% 42%;            /* #B8941F */
-    
-    --leather-dark: 25 20% 12%;         /* #2D261F */
-    --leather: 100 20% 30%;             /* Dark greenish */
-    --leather-light: 35 25% 75%;        /* #E8D7BB */
-    
-    /* Gradients */
+
+    --border: 100 25% 25%;
+    --input: 100 20% 15%;
+    --ring: 100 40% 50%;
+
+    --cream-light: 35 30% 96%;
+    --cream: 35 25% 90%;
+    --cream-dark: 35 25% 85%;
+
+    --bumble-green: 100 40% 48%;
+    --bumble-green-light: 100 35% 58%;
+    --bumble-green-dark: 100 45% 32%;
+
+    --gold: 45 75% 52%;
+    --gold-light: 45 70% 65%;
+    --gold-dark: 45 75% 42%;
+
+    --leather-dark: 25 20% 12%;
+    --leather: 100 20% 30%;
+    --leather-light: 35 25% 75%;
+
     --gradient-leather: linear-gradient(135deg, hsl(100 25% 15%) 0%, hsl(100 25% 20%) 100%);
     --gradient-green: linear-gradient(135deg, hsl(100 40% 48%) 0%, hsl(100 45% 38%) 100%);
     --gradient-gold: linear-gradient(135deg, hsl(45 75% 52%) 0%, hsl(45 75% 42%) 100%);
     --gradient-hero: linear-gradient(to bottom, hsl(100 30% 10% / 0.4), hsl(100 30% 10% / 0.95));
-    
-    /* Shadows */
+
     --shadow-leather: 0 4px 20px hsl(0 0% 0% / 0.6);
     --shadow-gold-glow: 0 0 20px hsl(45 75% 52% / 0.3);
     --shadow-green-glow: 0 0 20px hsl(100 40% 48% / 0.4);
     --shadow-emboss: inset 0 1px 2px hsl(0 0% 100% / 0.1), 0 2px 4px hsl(0 0% 0% / 0.3);
 
-    /* Sidebar colors - Rich Dark Green */
-    --sidebar-background: 100 28% 12%;  /* Dark forest green sidebar */
-    --sidebar-foreground: 35 30% 90%;   
-    --sidebar-primary: 100 40% 48%;     /* Green */
+    --sidebar-background: 100 28% 12%;
+    --sidebar-foreground: 35 30% 92%;
+    --sidebar-primary: 100 40% 48%;
     --sidebar-primary-foreground: 35 30% 96%;
-    --sidebar-accent: 100 25% 18%;       
-    --sidebar-accent-foreground: 35 25% 85%;
+    --sidebar-accent: 100 25% 18%;
+    --sidebar-accent-foreground: 35 25% 90%;
     --sidebar-border: 100 25% 22%;
     --sidebar-ring: 100 40% 48%;
-    
-    /* Transitions */
-    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 }
 

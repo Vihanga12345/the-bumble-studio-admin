@@ -8,9 +8,7 @@ import {
   ShoppingCart, 
   Package, 
   DollarSign, 
-  Users, 
   Menu, 
-  TrendingUp,
   LogOut,
   Truck
 } from 'lucide-react';
@@ -30,20 +28,17 @@ interface NavItem {
   requireManager?: boolean;
 }
 
-// Store the sidebar state in localStorage for persistence
 const STORAGE_KEY = 'sidebar_collapsed';
 
 const Sidebar: React.FC<SidebarProps> = ({ 
   isCollapsed: externalCollapsed, 
   onToggleCollapse 
 }) => {
-  // Initialize with localStorage value or default to false
   const storedCollapsed = localStorage.getItem(STORAGE_KEY) === 'true';
   const [collapsed, setCollapsed] = useState(externalCollapsed !== undefined ? externalCollapsed : storedCollapsed);
   const { hasModuleAccess, hasManagerAccess, signOut } = useERPAuth();
   const location = useLocation();
 
-  // Navigation items with module permissions
   const navigationItems: NavItem[] = [
     {
       title: 'Sales',
@@ -71,19 +66,15 @@ const Sidebar: React.FC<SidebarProps> = ({
     },
   ];
 
-  // Filter navigation items based on user permissions
   const filteredNavItems = navigationItems.filter(item => {
-    // Always show dashboard and settings
     if (!item.moduleKey && !item.requireManager) {
       return true;
     }
     
-    // Check manager access
     if (item.requireManager) {
       return hasManagerAccess();
     }
     
-    // Check module access
     if (item.moduleKey) {
       return hasModuleAccess(item.moduleKey);
     }
@@ -91,7 +82,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     return true;
   });
   
-  // Sync with external collapsed state if provided
   useEffect(() => {
     if (externalCollapsed !== undefined && externalCollapsed !== collapsed) {
       setCollapsed(externalCollapsed);
@@ -102,7 +92,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   const handleToggleCollapse = () => {
     const newCollapsedState = !collapsed;
     setCollapsed(newCollapsedState);
-    // Save to localStorage for persistence
     localStorage.setItem(STORAGE_KEY, newCollapsedState.toString());
     if (onToggleCollapse) {
       onToggleCollapse(newCollapsedState);
@@ -116,24 +105,22 @@ const Sidebar: React.FC<SidebarProps> = ({
   return (
     <div 
       className={cn(
-        "h-screen bg-sidebar fixed top-0 left-0 z-40 transition-all duration-300 ease-in-out border-r border-stitching/30 shadow-leather",
-        "hidden md:block", // Hide on mobile, show on desktop
+        "h-screen bg-sidebar text-sidebar-foreground fixed top-0 left-0 z-40 transition-all duration-300 ease-in-out border-r border-sidebar-border shadow-leather",
+        "hidden md:block",
         collapsed ? "w-[70px]" : "w-[250px]"
       )}
     >
-      {/* Mobile sidebar toggle */}
       <div className="absolute right-4 top-4 block md:hidden">
         <button 
           onClick={handleToggleCollapse}
-          className="p-2 rounded-md hover:bg-leather-medium text-gold"
+          className="p-2 rounded-md hover:bg-sidebar-accent text-gold"
         >
           <Menu size={20} />
         </button>
       </div>
       
-      {/* Logo */}
       <div className={cn(
-        "flex items-center h-16 px-4 border-b border-bumble/30",
+        "flex items-center h-16 px-4 border-b border-sidebar-border",
         collapsed ? "justify-center" : "justify-between"
       )}>
         <div className={cn("flex items-center gap-3", collapsed ? "justify-center" : "")}>
@@ -143,25 +130,21 @@ const Sidebar: React.FC<SidebarProps> = ({
             className="h-12 w-auto max-w-[50px] object-contain"
           />
           {!collapsed && (
-            <span className="font-playfair text-xl font-semibold tracking-tight text-bumble-light animate-fade-in">Admin</span>
+            <span className="font-playfair text-xl font-semibold tracking-tight text-sidebar-foreground animate-fade-in">Admin</span>
           )}
         </div>
         
-        {/* Collapse button */}
         <button 
           onClick={handleToggleCollapse}
           className={cn(
-            "p-1.5 rounded-md hover:bg-card transition-all duration-300 ease-in-out text-bumble-light hover:text-bumble",
+            "p-1.5 rounded-md hover:bg-sidebar-accent transition-all duration-300 ease-in-out text-sidebar-foreground hover:text-gold",
             collapsed ? "rotate-180" : ""
           )}
         >
           {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         </button>
       </div>
-
-      {/* User Info removed */}
       
-      {/* Navigation Links */}
       <nav className="py-4 px-2 flex-1">
         <ul className="space-y-1">
           {filteredNavItems.map((item) => {
@@ -174,10 +157,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                   to={item.path}
                   className={cn(
                     "flex items-center gap-3 px-3 py-2 rounded-md transition-all duration-200",
-                    "hover:bg-card group",
+                    "hover:bg-sidebar-accent group",
                     isActive ? 
-                      "bg-gradient-green text-foreground font-medium shadow-green-glow" : 
-                      "text-foreground/80 hover:text-bumble-light",
+                      "bg-sidebar-accent text-gold font-medium shadow-green-glow" : 
+                      "text-sidebar-foreground/85 hover:text-sidebar-foreground",
                     collapsed ? "justify-center" : ""
                   )}
                 >
@@ -195,13 +178,12 @@ const Sidebar: React.FC<SidebarProps> = ({
         </ul>
       </nav>
 
-      {/* Sign Out Button */}
-      <div className="border-t border-bumble/30 p-2">
+      <div className="border-t border-sidebar-border p-2">
         <Button
           variant="ghost"
           onClick={handleSignOut}
           className={cn(
-            "w-full text-foreground/80 hover:text-bumble-light hover:bg-card",
+            "w-full text-sidebar-foreground/85 hover:text-sidebar-foreground hover:bg-sidebar-accent",
             collapsed ? "justify-center px-2" : "justify-start"
           )}
         >

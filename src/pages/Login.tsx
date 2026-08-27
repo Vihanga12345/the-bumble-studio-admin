@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Eye, EyeOff, LogIn, AlertCircle } from 'lucide-react';
 import { useERPAuth } from '@/contexts/ERPAuthContext';
+import ThemeToggle from '@/components/ThemeToggle';
 const logo = '/bumble-logo.png';
 
 const Login = () => {
@@ -19,7 +20,6 @@ const Login = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // Redirect if already authenticated
   if (isAuthenticated) {
     return <Navigate to="/" replace />;
   }
@@ -30,7 +30,6 @@ const Login = () => {
       ...prev,
       [name]: value
     }));
-    // Clear error when user starts typing
     if (error) setError('');
   };
   
@@ -57,7 +56,6 @@ const Login = () => {
       if (!result.success) {
         setError(result.error || 'Login failed');
       }
-      // Success is handled by the auth context and will redirect automatically
     } catch (error) {
       setError('An unexpected error occurred');
       console.error('Login error:', error);
@@ -68,24 +66,27 @@ const Login = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-white text-xl">Loading...</div>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-foreground text-xl">Loading...</div>
       </div>
     );
   }
   
   return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-background flex items-center justify-center p-6 relative">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-md">
-        <Card className="border-gray-700 bg-gray-800">
+        <Card className="border-border bg-card shadow-leather">
           <CardHeader className="text-center">
             <div className="flex justify-center">
               <img src={logo} alt="Bumble Studio Logo" className="h-20 w-auto max-w-[200px] object-contain" />
             </div>
-            <CardTitle className="text-2xl font-bold text-white">
+            <CardTitle className="text-2xl font-bold text-foreground">
               Admin
             </CardTitle>
-            <p className="text-gray-400 text-sm">
+            <p className="text-muted-foreground text-sm">
               Sign in to access the admin panel
             </p>
           </CardHeader>
@@ -99,7 +100,7 @@ const Login = () => {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="username" className="text-white">
+                <Label htmlFor="username" className="text-foreground">
                   Username
                 </Label>
                 <Input
@@ -109,13 +110,13 @@ const Login = () => {
                   value={formData.username}
                   onChange={handleChange}
                   placeholder="Enter your username"
-                  className="bg-gray-700 border-gray-600 text-white placeholder-gray-400"
+                  className="bg-background border-border text-foreground"
                   required
                 />
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-white">
+                <Label htmlFor="password" className="text-foreground">
                   Password
                 </Label>
                 <div className="relative">
@@ -126,14 +127,14 @@ const Login = () => {
                     value={formData.password}
                     onChange={handleChange}
                     placeholder="Enter your password"
-                    className="bg-gray-700 border-gray-600 text-white placeholder-gray-400 pr-10"
+                    className="bg-background border-border text-foreground pr-10"
                     autoComplete="current-password"
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   >
                     {showPassword ? (
                       <EyeOff className="h-4 w-4" />
@@ -146,12 +147,12 @@ const Login = () => {
               
               <Button
                 type="submit"
-                className="w-full bg-blue-600 hover:bg-blue-700"
+                className="w-full"
                 disabled={isSubmitting}
-                >
+              >
                 {isSubmitting ? (
                   <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-foreground mr-2"></div>
                     Signing in...
                   </>
                 ) : (
@@ -159,21 +160,10 @@ const Login = () => {
                     <LogIn className="h-4 w-4 mr-2" />
                     Sign In
                   </>
-              )}
+                )}
               </Button>
             </form>
-              
-            {/* Demo credentials info */}
-            <div className="mt-6 p-4 bg-gray-700 rounded-lg">
-              <h3 className="text-white font-medium mb-2">Demo Credentials:</h3>
-              <div className="text-sm text-gray-300 space-y-1">
-                <div><strong>Manager:</strong> admin / admin123</div>
-                <div className="text-xs text-gray-400 mt-2">
-                  The manager can create employees and manage module access.
-                </div>
-                </div>
-              </div>
-            </CardContent>
+          </CardContent>
         </Card>
       </div>
     </div>
